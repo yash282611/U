@@ -9,72 +9,74 @@ from config import API_ID, API_HASH, SESSION_STRING, GEMINI_API_KEY, GROUP_LINK
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# 1. Active Gemini Model Setup
+# 1. Gemini AI Setup (Active Model Auto-Connection)
 genai.configure(api_key=GEMINI_API_KEY)
 
-active_model = None
-MODELS_TO_CHECK = [
-    "gemini-2.5-flash",
-    "gemini-flash-latest",
-    "gemini-2.5-pro",
-    "gemini-1.5-flash"
-]
-
-for m_name in MODELS_TO_CHECK:
+def connect_best_model():
+    priority_models = [
+        "gemini-3.6-flash",
+        "gemini-3.7-flash",
+        "gemini-3.5-flash",
+        "gemini-flash-latest",
+        "gemini-3.1-flash-lite"
+    ]
     try:
-        test_m = genai.GenerativeModel(m_name)
-        # Test connection
-        test_m.generate_content("hi")
-        active_model = test_m
-        logging.info(f"⚡ AI Connected to Model: {m_name}")
-        break
+        all_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        logging.info(f"Available Account Models: {all_models}")
+
+        for target in priority_models:
+            for full_name in all_models:
+                if target in full_name:
+                    try:
+                        m = genai.GenerativeModel(full_name)
+                        m.generate_content("hi")
+                        logging.info(f"🎯 Connected 100% to Active AI Model: {full_name}")
+                        return m
+                    except Exception as err:
+                        logging.warning(f"Skipping {full_name}: {err}")
+                        continue
     except Exception as e:
-        logging.warning(f"Model {m_name} check failed: {e}")
-        continue
+        logging.error(f"Error finding model: {e}")
 
-if not active_model:
-    active_model = genai.GenerativeModel("gemini-2.5-flash")
+    return genai.GenerativeModel("gemini-3.6-flash")
 
-# 2. Pure Human-like Dynamic AI Generator
-def generate_ai_reply(user_text: str, sender_name: str) -> str:
-    prompt = f"""You are a cool, young Indian friend chatting on Telegram. Reply like an authentic real human in natural casual Hinglish (Hindi written in English alphabets).
+active_ai = connect_best_model()
 
-Strict Guidelines:
-1. Always reply in everyday conversational Hinglish (like talking to a close friend).
-2. Understand chat short-forms and slangs (e.g. 'kkrh' = kya kar rahe ho, 'kidar h' = kahan ho, 'kaisa h' = kaisa hai, 'wrud', 'oye', 'yoo', 'hmm').
-3. Keep it crisp and short (1-2 sentences maximum, never give essays).
-4. NEVER say you are an AI, bot, or virtual assistant.
-5. If the user explicitly asks for a group, channel or join link, share: {GROUP_LINK}
+# 2. 100% Dynamic AI Hinglish Generator
+def get_ai_reply(user_text: str, sender_name: str) -> str:
+    prompt = f"""You are a cool, casual Indian friend chatting on Telegram. Reply like an authentic real human in natural everyday Hinglish (Hindi words written in English alphabet).
 
-Friend ({sender_name}): "{user_text}"
+Chat Guidelines:
+1. Always understand chat short-forms & slang:
+   - "kkrh" -> kya kar rahe ho (tell what you are doing casually, e.g., 'kuch nahi bhai bas chill kar raha hu. tu bata?')
+   - "kidar h" -> kahan ho (tell where you are casually)
+   - "kaisa h" -> kaisa hai (reply how you are)
+   - "yo" / "hi" / "oye" -> casual greeting
+2. Reply strictly based on what the user said in 1 short line.
+3. NEVER repeat fixed canned lines.
+4. NEVER say you are an AI or bot.
+5. If the user asks for a group, channel, or link, share: {GROUP_LINK}
+
+Friend ({sender_name}) says: "{user_text}"
 Your Hinglish reply:"""
 
     try:
-        response = active_model.generate_content(prompt)
+        response = active_ai.generate_content(prompt)
         if response and response.text:
             return response.text.strip()
     except Exception as e:
-        logging.error(f"❌ AI Generation Error: {e}")
-        # Retry with latest fallback model if current fails
-        try:
-            m_fallback = genai.GenerativeModel("gemini-flash-latest")
-            res = m_fallback.generate_content(prompt)
-            if res and res.text:
-                return res.text.strip()
-        except Exception as err2:
-            logging.error(f"Fallback generation error: {err2}")
-    
+        logging.error(f"AI response generation error: {e}")
     return ""
 
-# Popular Sticker Pack File IDs for instant sticker responses
-COOL_STICKERS = [
-    "CAACAgIAAxkBAAEK1eBlvK9-h3V1Lh6DkgABw1b4a3kAAj0AA8G2wQgYjGfXW3wFHgQ",  # Thumbs up / Cool
-    "CAACAgIAAxkBAAEK1eJlvK-KzP6b2hM4g9_ySgABG3kAAl0AA8G2wQjK_HwXlB0BHgQ",  # Laugh
-    "CAACAgIAAxkBAAEK1eRlvK-W6Z4zQ4YxKjZtL-UAAkcAA8G2wQirF03mGgW5HgQ",      # Wink / Hi
-    "CAACAgIAAxkBAAEK1eZlvK-f7uO0n8cQ5f7L3OQAAiEAA8G2wQjX_d8uT4QHHgQ"       # Respect / Namaste
+# Popular Sticker Pack IDs
+STICKERS = [
+    "CAACAgIAAxkBAAEK1eBlvK9-h3V1Lh6DkgABw1b4a3kAAj0AA8G2wQgYjGfXW3wFHgQ",
+    "CAACAgIAAxkBAAEK1eJlvK-KzP6b2hM4g9_ySgABG3kAAl0AA8G2wQjK_HwXlB0BHgQ",
+    "CAACAgIAAxkBAAEK1eRlvK-W6Z4zQ4YxKjZtL-UAAkcAA8G2wQirF03mGgW5HgQ",
+    "CAACAgIAAxkBAAEK1eZlvK-f7uO0n8cQ5f7L3OQAAiEAA8G2wQjX_d8uT4QHHgQ"
 ]
 
-# 3. Telegram Client
+# 3. Pyrogram Client
 app = Client(
     "group_human_userbot",
     api_id=API_ID,
@@ -82,14 +84,14 @@ app = Client(
     session_string=SESSION_STRING
 )
 
-# Text Message Handler (100% Dynamic AI)
+# Text Handler
 @app.on_message(filters.text & ~filters.me & ~filters.bot)
-def handle_incoming_text(client: Client, message: Message):
+def on_text_message(client: Client, message: Message):
     sender = message.from_user.first_name if message.from_user else "Dost"
     user_text = message.text
     chat_id = message.chat.id
 
-    logging.info(f"📩 Naya Message [{sender}]: {user_text}")
+    logging.info(f"📩 Naya Text [{sender}]: {user_text}")
 
     try:
         try:
@@ -100,19 +102,17 @@ def handle_incoming_text(client: Client, message: Message):
 
         time.sleep(random.uniform(1.2, 2.0))
 
-        # 100% AI generated reply
-        reply_text = generate_ai_reply(user_text, sender)
+        reply = get_ai_reply(user_text, sender)
+        if reply:
+            message.reply_text(text=reply, quote=True, disable_web_page_preview=True)
+            logging.info(f"✅ AI Replied to [{sender}]: {reply}")
 
-        if reply_text:
-            message.reply_text(text=reply_text, quote=True, disable_web_page_preview=True)
-            logging.info(f"✅ AI Replied to [{sender}]: {reply_text}")
+    except Exception as e:
+        logging.error(f"Text error: {e}")
 
-    except Exception as err:
-        logging.error(f"Text handling error: {err}")
-
-# Sticker Message Handler (Replies with Sticker)
+# Sticker Handler
 @app.on_message(filters.sticker & ~filters.me & ~filters.bot)
-def handle_incoming_sticker(client: Client, message: Message):
+def on_sticker_message(client: Client, message: Message):
     sender = message.from_user.first_name if message.from_user else "Dost"
     chat_id = message.chat.id
 
@@ -126,12 +126,12 @@ def handle_incoming_sticker(client: Client, message: Message):
             pass
 
         time.sleep(random.uniform(1.0, 1.8))
-        message.reply_sticker(sticker=random.choice(COOL_STICKERS), quote=True)
+        message.reply_sticker(sticker=random.choice(STICKERS), quote=True)
         logging.info(f"✅ Replied Sticker to [{sender}]")
 
-    except Exception as err:
-        logging.error(f"Sticker handling error: {err}")
+    except Exception as e:
+        logging.error(f"Sticker error: {e}")
 
 if __name__ == "__main__":
-    logging.info("🚀 AI Bot is LIVE & Listening...")
+    logging.info("🚀 AI Human Bot is Starting...")
     app.run()
