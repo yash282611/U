@@ -1,25 +1,20 @@
-import os, asyncio, random, logging
+import asyncio
+import random
+import logging
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from pyrogram.enums import ChatAction
 import google.generativeai as genai
-from dotenv import load_dotenv
+from config import API_ID, API_HASH, SESSION_STRING, GEMINI_API_KEY, GROUP_LINK
 
-load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-API_ID = int(os.environ.get("API_ID", "0"))
-API_HASH = os.environ.get("API_HASH", "")
-SESSION_STRING = os.environ.get("SESSION_STRING", "")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GROUP_LINK = os.environ.get("GROUP_LINK", "https://t.me/Period_Blocker")
-
 if not all([API_ID, API_HASH, SESSION_STRING, GEMINI_API_KEY]):
-    logging.error("❌ क्रेडेंशियल्स मौजूद नहीं हैं!")
+    logging.error("❌ क्रेडेंशियल्स मौजूद नहीं हैं! Railway Variables चेक करें।")
     exit(1)
 
 genai.configure(api_key=GEMINI_API_KEY)
-SYSTEM_INSTRUCTION = f"आप Telegram ग्रुप/DM में असली इंसान की तरह बात कर रहे हैं। Hinglish में छोटे जवाब दें। जब कोई पूछे तभी लिंक दें: {GROUP_LINK}"
+SYSTEM_INSTRUCTION = f"आप Telegram ग्रुप/DM में असली इंसान की तरह बात कर रहे हैं। Hinglish में छोटे जवाब दें। जब कोई ग्रुप के बारे में पूछे तभी लिंक दें: {GROUP_LINK}"
 model = genai.GenerativeModel("gemini-1.5-flash", system_instruction=SYSTEM_INSTRUCTION)
 
 chat_sessions = {}
@@ -63,7 +58,7 @@ async def main():
             async for _ in app.get_dialogs(limit=100):
                 pass
         except Exception as e:
-            logging.warning(f"Dialog load: {e}")
+            logging.warning(f"Dialog cache warning: {e}")
         logging.info("🚀 AI बॉट सफलतापूर्वक लाइव हो चुका है!")
         await asyncio.Event().wait()
 
