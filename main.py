@@ -4,12 +4,13 @@ import logging
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message
 from pyrogram.enums import ChatAction
+from pyrogram.raw.functions.messages import GetAllStickers
 import google.generativeai as genai
 from config import API_ID, API_HASH, SESSION_STRING, GEMINI_API_KEY, GROUP_LINK
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# 1. Gemini AI Active Model Auto-Connect
+# 1. Gemini AI Setup
 genai.configure(api_key=GEMINI_API_KEY)
 
 def connect_best_model():
@@ -38,16 +39,19 @@ def connect_best_model():
 
 active_ai = connect_best_model()
 
-# 2. Pure Dynamic AI Reply Generator
+# 2. 100% Dynamic AI Hinglish Generator
 def get_ai_reply(user_text: str, sender_name: str) -> str:
-    prompt = f"""You are a cool, casual Indian friend chatting on Telegram. Reply like an authentic real human in natural everyday Hinglish (Hindi words written in English alphabet).
+    prompt = f"""You are a young, cool Indian guy chatting with a friend on Telegram. Reply like an authentic real human in natural casual Hinglish (Hindi written in English alphabet).
 
-Chat Guidelines:
-1. Always understand chat short-forms & slang (e.g. 'kkrh' -> kya kar rahe ho, 'kidar h' -> kahan ho, 'kaisa h' -> kaisa hai, 'yo', 'oye', 'hmm').
-2. Reply strictly based on what the user said in 1 short line.
-3. NEVER repeat canned lines.
+Strict Guidelines:
+1. Always reply in everyday casual conversational Hinglish (short & snappy).
+2. Understand chat slang & questions:
+   - "gf h teri" -> funny casual reply (e.g. 'nahi bhai single hu, tu setting kara de!')
+   - "kidar gya" -> casual reply (e.g. 'yahi hu bhai, pani peene gaya tha. bol!')
+   - "kkrh" -> 'kuch nahi bhai bas chill kar raha hu'
+3. Keep it to 1-2 short sentences max.
 4. NEVER say you are an AI or bot.
-5. If the user asks for a group, channel, or link, share: {GROUP_LINK}
+5. If the user asks for group/channel/link, share: {GROUP_LINK}
 
 Friend ({sender_name}) says: "{user_text}"
 Your Hinglish reply:"""
@@ -60,7 +64,7 @@ Your Hinglish reply:"""
         logging.error(f"AI response error: {e}")
     return ""
 
-# 3. Pyrogram Client & Live Sticker Pack Loader
+# 3. Pyrogram Client & Auto Account Sticker Sync
 app = Client(
     "group_human_userbot",
     api_id=API_ID,
@@ -70,18 +74,35 @@ app = Client(
 
 STICKER_CACHE = []
 
-async def load_sticker_packs():
-    popular_packs = ["Memes", "Animals", "AnimatedDog", "HotCherry", "DuckFlock"]
-    for pack in popular_packs:
-        try:
-            st_set = await app.get_sticker_set(pack)
-            for s in st_set.stickers:
-                STICKER_CACHE.append(s.file_id)
-        except Exception:
-            continue
-    logging.info(f"🎨 Total {len(STICKER_CACHE)} Stickers loaded successfully!")
+async def load_all_stickers():
+    global STICKER_CACHE
+    try:
+        # User account me installed saare stickers automatically load karega
+        result = await app.invoke(GetAllStickers(hash=0))
+        for sticker_set in result.sets:
+            try:
+                st_set = await app.get_sticker_set(sticker_set.short_name)
+                for s in st_set.stickers:
+                    STICKER_CACHE.append(s.file_id)
+            except Exception:
+                continue
+    except Exception as e:
+        logging.warning(f"Account stickers load warning: {e}")
 
-# Text Messages Handler (100% Dynamic AI)
+    # Agar account me koi sticker na ho toh popular sets se load karega
+    if not STICKER_CACHE:
+        fallback_packs = ["HotCherry", "AnimatedDog", "Animals", "TgEmojis", "SberKot"]
+        for pack in fallback_packs:
+            try:
+                st_set = await app.get_sticker_set(pack)
+                for s in st_set.stickers:
+                    STICKER_CACHE.append(s.file_id)
+            except Exception:
+                continue
+
+    logging.info(f"🎨 Total {len(STICKER_CACHE)} Stickers ready in Cache!")
+
+# Text Messages Handler
 @app.on_message(filters.text & ~filters.me & ~filters.bot)
 async def on_text_message(client: Client, message: Message):
     sender = message.from_user.first_name if message.from_user else "Dost"
@@ -99,7 +120,12 @@ async def on_text_message(client: Client, message: Message):
 
         await asyncio.sleep(random.uniform(1.2, 2.0))
 
-        reply = await asyncio.to_thread(get_ai_reply, user_text, sender)
+        # 8-second safety timeout on AI call
+        reply = await asyncio.wait_for(
+            asyncio.to_thread(get_ai_reply, user_text, sender),
+            timeout=8.0
+        )
+
         if reply:
             await message.reply_text(text=reply, quote=True, disable_web_page_preview=True)
             logging.info(f"✅ AI Replied to [{sender}]: {reply}")
@@ -107,11 +133,15 @@ async def on_text_message(client: Client, message: Message):
     except Exception as e:
         logging.error(f"Text error: {e}")
 
-# Sticker Messages Handler (100% Working Live Sticker Reply)
+# Sticker Messages Handler (100% Guaranteed Sticker Reply)
 @app.on_message(filters.sticker & ~filters.me & ~filters.bot)
 async def on_sticker_message(client: Client, message: Message):
     sender = message.from_user.first_name if message.from_user else "Dost"
     chat_id = message.chat.id
+
+    # Auto-learn received sticker into cache
+    if message.sticker and message.sticker.file_id:
+        STICKER_CACHE.append(message.sticker.file_id)
 
     logging.info(f"🎨 Sticker received from [{sender}]")
 
@@ -127,25 +157,24 @@ async def on_sticker_message(client: Client, message: Message):
         if STICKER_CACHE:
             random_sticker = random.choice(STICKER_CACHE)
             await message.reply_sticker(sticker=random_sticker, quote=True)
-            logging.info(f"✅ Replied Sticker to [{sender}]")
+            logging.info(f"✅ Sent Sticker Reply to [{sender}]")
         else:
-            # Fallback agar pack load na ho: same sticker reply
             await message.reply_sticker(sticker=message.sticker.file_id, quote=True)
 
     except Exception as e:
-        logging.error(f"Sticker send error: {e}")
+        logging.error(f"Sticker handler error: {e}")
 
 async def main():
     await app.start()
-    logging.info("⏳ Dialogs aur Sticker cache load ho rahe hain...")
+    logging.info("⏳ Dialogs cache load ho raha hai...")
     try:
-        async for _ in app.get_dialogs(limit=30):
+        async for _ in app.get_dialogs(limit=25):
             pass
     except Exception:
         pass
 
-    await load_sticker_packs()
-    logging.info("🚀 AI Human Bot is LIVE & Ready for Text + Stickers!")
+    await load_all_stickers()
+    logging.info("🚀 AI Human Bot is LIVE & Ready for 24/7 Chats + Stickers!")
     await idle()
     await app.stop()
 
