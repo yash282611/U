@@ -1,7 +1,7 @@
 import asyncio
 import random
 import logging
-from pyrogram import Client, filters, idle
+from pyrogram import Client, filters
 from pyrogram.types import Message
 from pyrogram.enums import ChatAction
 import google.generativeai as genai
@@ -11,27 +11,26 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 # Gemini Setup
 genai.configure(api_key=GEMINI_API_KEY)
-
 SYSTEM_PROMPT = (
     f"Aap Telegram par ek real human ki tarah baat kar rahe hain. "
-    f"Hinglish me friendly aur short jawab dein (1-2 lines). "
-    f"Jab koi group/link maange tabhi yeh dein: {GROUP_LINK}"
+    f"Hinglish me friendly, casual aur short jawab dein (1-2 lines). "
+    f"Jab koi group ya channel ka link maange tabhi yeh dein: {GROUP_LINK}"
 )
 
-# Robust Multi-Model Finder
-def get_working_model():
-    model_candidates = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-pro"]
-    try:
-        available = [m.name.replace("models/", "") for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        for candidate in model_candidates:
-            if candidate in available:
-                logging.info(f"✅ Gemini Model Selected: {candidate}")
-                return genai.GenerativeModel(candidate, system_instruction=SYSTEM_PROMPT)
-    except Exception as e:
-        logging.warning(f"Model listing failed: {e}")
-    return genai.GenerativeModel("gemini-1.5-flash", system_instruction=SYSTEM_PROMPT)
+# Multi-Model Fallback
+MODELS_TO_TRY = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-pro", "gemini-1.5-pro"]
 
-model = get_working_model()
+def ask_gemini(user_text, sender_name):
+    prompt = f"User ({sender_name}): {user_text}\nReply in Hinglish:"
+    for model_name in MODELS_TO_TRY:
+        try:
+            m = genai.GenerativeModel(model_name, system_instruction=SYSTEM_PROMPT)
+            res = m.generate_content(prompt)
+            if res and res.text:
+                return res.text.strip()
+        except Exception:
+            continue
+    return "Haan bhai, bolo kya haal chaal?"
 
 app = Client(
     "group_human_userbot",
@@ -42,41 +41,30 @@ app = Client(
 
 @app.on_message(filters.text & ~filters.me)
 async def auto_reply(client: Client, message: Message):
-    sender = message.from_user.first_name if message.from_user else "Dost"
-    user_text = message.text
-    chat_id = message.chat.id
-
-    logging.info(f"📩 Naya Message Aaya [{sender}]: {user_text}")
-
     try:
+        chat_id = message.chat.id
+        sender = message.from_user.first_name if message.from_user else "Dost"
+        user_text = message.text
+
+        logging.info(f"📩 Naya Message Aaya [{sender}]: {user_text}")
+
+        # 1. Seen / Read status
+        await client.read_chat_history(chat_id)
+
+        # 2. Human typing delay
         await client.send_chat_action(chat_id, ChatAction.TYPING)
-        await asyncio.sleep(random.uniform(1.0, 2.0))
+        await asyncio.sleep(random.uniform(1.2, 2.2))
 
-        prompt = f"User ({sender}) says: {user_text}\nReply:"
-        response = await asyncio.to_thread(model.generate_content, prompt)
-        reply_text = response.text.strip() if (response and response.text) else "Haan bhai, bolo!"
+        # 3. Get AI Response
+        reply_text = await asyncio.to_thread(ask_gemini, user_text, sender)
 
+        # 4. Send Reply
         await message.reply_text(text=reply_text, quote=True, disable_web_page_preview=True)
-        logging.info(f"✅ Reply bheja: {reply_text}")
+        logging.info(f"✅ Sent Reply to [{sender}]: {reply_text}")
 
     except Exception as e:
-        logging.error(f"❌ Error in reply: {e}")
-        try:
-            await message.reply_text("Haan bhai, bolo kya haal chaal?", quote=True)
-        except Exception:
-            pass
-
-async def main():
-    await app.start()
-    logging.info("⏳ Dialogs cache load ho raha hai...")
-    try:
-        async for _ in app.get_dialogs(limit=50):
-            pass
-    except Exception:
-        pass
-    logging.info("🚀 AI Bot puri tarah ready hai aur live listen kar raha hai!")
-    await idle()
-    await app.stop()
+        logging.error(f"❌ Error in message handling: {e}")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    logging.info("🚀 AI Human Bot is Starting...")
+    app.run()
