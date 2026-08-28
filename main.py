@@ -1,48 +1,59 @@
 import asyncio
 import random
 import logging
+import json
+import urllib.request
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message
 from pyrogram.enums import ChatAction
-import google.generativeai as genai
 from config import API_ID, API_HASH, SESSION_STRING, GEMINI_API_KEY, GROUP_LINK
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Gemini Setup
-genai.configure(api_key=GEMINI_API_KEY)
+# Smart AI Response Generator
+def get_ai_reply(user_text: str, sender_name: str) -> str:
+    prompt = (
+        f"You are a real Indian person chatting with a friend on Telegram. "
+        f"Reply in natural, cool, everyday Hinglish (Hindi written in English alphabets). "
+        f"Rules:\n"
+        f"1. Understand chat short-forms (kkrh = kya kar raha hai, kaisa h = kaisa hai, mast = good, wrud = what are you doing).\n"
+        f"2. Keep replies short, casual, and human (1-2 lines max).\n"
+        f"3. Never say you are an AI or bot. Speak like a real buddy.\n"
+        f"4. If asked for link, channel, or group, share this: {GROUP_LINK}\n\n"
+        f"Friend ({sender_name}) says: \"{user_text}\"\n"
+        f"Your Hinglish Reply:"
+    )
 
-def generate_human_reply(user_text: str, sender_name: str) -> str:
-    prompt = f"""You are a chill Indian guy chatting on Telegram. Reply like a real, cool human friend in everyday casual Hinglish (Hindi written in English alphabet).
-
-Chat Rules:
-1. Speak 100% natural conversational Hinglish (use casual words like bhai, arre, mast, badhiya, yaar, tu bata).
-2. Understand chat slang & short forms (e.g. 'kkrh' = kya kar raha hai, 'wrud' = what are you doing, 'kaisa h' = kaisa hai, 'gn' = good night).
-3. Keep replies very short and sweet (1 to 2 lines max).
-4. NEVER say "I am an AI", "How can I assist you?", or speak like a robot/bot.
-5. If the user asks for a group, channel, link, or where to join, share this: {GROUP_LINK}
-
-User message from {sender_name}: "{user_text}"
-Your natural reply:"""
-
-    models_to_try = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-pro"]
+    # Models to try sequentially
+    models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
     
-    for model_name in models_to_try:
+    for model_name in models:
         try:
-            m = genai.GenerativeModel(model_name)
-            res = m.generate_content(prompt)
-            if res and res.text:
-                return res.text.strip()
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.85, "maxOutputTokens": 100}
+            }
+            req = urllib.request.Request(
+                url, 
+                data=json.dumps(payload).encode('utf-8'), 
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=8) as response:
+                res_data = json.loads(response.read().decode('utf-8'))
+                reply = res_data['candidates'][0]['content']['parts'][0]['text'].strip()
+                if reply:
+                    return reply
         except Exception as e:
-            logging.error(f"Error on model {model_name}: {e}")
+            logging.warning(f"Model {model_name} error: {e}")
             continue
 
-    # Human-like dynamic fallbacks
+    # Human-like intelligent fallbacks
     fallbacks = [
-        "Kuch nahi bhai, bas phone chala raha tha. Tu bata kya scene?",
-        "Badhiya bhai, tu suna kya chal raha hai?",
-        "Haan bolo bhai, sab theek thaak?",
-        "Bas aese hi baitha tha yaar, tu bata kaisa hai?"
+        "Kuch nahi bhai, bas aese hi baitha tha. Tu bata?",
+        "Mast hu bhai, tu suna kya chal raha hai?",
+        "Haan bhai bol, sun raha hu.",
+        "Bas phone chala raha tha yaar, tu bata kaisa hai?"
     ]
     return random.choice(fallbacks)
 
@@ -53,43 +64,44 @@ app = Client(
     session_string=SESSION_STRING
 )
 
-@app.on_message(filters.text & filters.incoming & ~filters.me & ~filters.bot)
+@app.on_message(filters.text & ~filters.me & ~filters.bot)
 async def auto_reply(client: Client, message: Message):
     try:
         sender = message.from_user.first_name if message.from_user else "Dost"
         user_text = message.text
         chat_id = message.chat.id
 
-        logging.info(f"📩 Incoming Message [{sender}]: {user_text}")
+        logging.info(f"📩 Naya Message [{sender}]: {user_text}")
 
-        # Seen & Typing Simulation
+        # Seen / Read status
         try:
             await client.read_chat_history(chat_id)
             await client.send_chat_action(chat_id, ChatAction.TYPING)
         except Exception:
             pass
 
-        # Natural typing delay
+        # Realistic human delay
         await asyncio.sleep(random.uniform(1.2, 2.5))
 
-        # AI Reply
-        reply_text = await asyncio.to_thread(generate_human_reply, user_text, sender)
+        # Get dynamic AI response
+        reply_text = await asyncio.to_thread(get_ai_reply, user_text, sender)
 
+        # Send Reply
         await message.reply_text(text=reply_text, quote=True, disable_web_page_preview=True)
-        logging.info(f"✅ AI Replied to [{sender}]: {reply_text}")
+        logging.info(f"✅ Replied to [{sender}]: {reply_text}")
 
     except Exception as e:
-        logging.error(f"Handler error: {e}")
+        logging.error(f"Error in handler: {e}")
 
 async def main():
     await app.start()
-    logging.info("⏳ Dialogs cache sync ho raha hai...")
+    logging.info("⏳ Dialogs sync ho rahe hain...")
     try:
         async for _ in app.get_dialogs(limit=50):
             pass
     except Exception:
         pass
-    logging.info("🚀 AI Human Bot is LIVE and Ready!")
+    logging.info("🚀 AI Human Bot is LIVE & Ready!")
     await idle()
     await app.stop()
 
