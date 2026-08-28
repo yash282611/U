@@ -10,7 +10,7 @@ from config import API_ID, API_HASH, SESSION_STRING, GEMINI_API_KEY, GROUP_LINK
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# 1. Gemini AI Active Model Setup
+# 1. Gemini AI Setup
 genai.configure(api_key=GEMINI_API_KEY)
 
 def connect_best_model():
@@ -38,14 +38,14 @@ def connect_best_model():
 
 active_ai = connect_best_model()
 
-# 2. 100% Dynamic Human AI Reply Generator
+# 2. Dynamic AI Hinglish Generator
 def get_ai_reply(user_text: str, sender_name: str) -> str:
-    prompt = f"""You are a cool, real Indian friend chatting casually on Telegram in natural Hinglish.
+    prompt = f"""You are a cool Indian friend chatting casually on Telegram in natural Hinglish.
 
 Guidelines:
-1. Speak in natural everyday casual Hinglish (short, friendly, real human tone).
-2. Understand slang/short-words (e.g. 'gf h teri', 'kidar gya', 'hu', 'kkrh', 'kaisa h', 'thik hb', 'oye', 'hh', 'vhv').
-3. Keep answers to 1 short sentence.
+1. Speak in natural everyday casual Hinglish (short, friendly, real person tone).
+2. Understand chat short-forms (e.g. 'gf h teri', 'kidar gya', 'kkrh', 'kaisa h', 'thik hb', 'hi', 'oye').
+3. Keep answers to 1 short line.
 4. NEVER repeat canned lines.
 5. NEVER mention being an AI or bot.
 6. If the user asks for a group, channel, or link, share: {GROUP_LINK}
@@ -62,7 +62,7 @@ Your Hinglish reply:"""
 
     return "Haan bhai, sun raha hu bol!"
 
-# 3. Pyrogram Client & User Account Stickers Sync
+# 3. Pyrogram Client
 app = Client(
     "group_human_userbot",
     api_id=API_ID,
@@ -72,27 +72,34 @@ app = Client(
 
 ACCOUNT_STICKERS = []
 
+# Account ke Installed Stickers Load Karne Ka Accurate Tarika
 async def sync_account_stickers():
     global ACCOUNT_STICKERS
+    ACCOUNT_STICKERS.clear()
+    
     try:
-        # User account me add kiye hue sticker sets load karega
-        result = await app.invoke(GetAllStickers(hash=0))
-        if hasattr(result, "sets"):
-            for s_set in result.sets:
-                short_name = getattr(s_set, "short_name", None)
+        all_sets = await app.invoke(GetAllStickers(hash=0))
+        if hasattr(all_sets, "sets"):
+            for item in all_sets.sets:
+                short_name = None
+                if hasattr(item, "set") and hasattr(item.set, "short_name"):
+                    short_name = item.set.short_name
+                elif hasattr(item, "short_name"):
+                    short_name = item.short_name
+
                 if short_name:
                     try:
-                        set_data = await app.get_sticker_set(short_name)
-                        for s in set_data.stickers:
+                        st_set = await app.get_sticker_set(short_name)
+                        for s in st_set.stickers:
                             ACCOUNT_STICKERS.append(s.file_id)
                     except Exception:
                         continue
     except Exception as e:
-        logging.warning(f"Account stickers sync notice: {e}")
+        logging.warning(f"Account stickers load note: {e}")
 
-    # Fallback agar account me 0 saved stickers ho
+    # Agar account me 0 stickers mile toh backup packs load karega
     if not ACCOUNT_STICKERS:
-        for backup_pack in ["AnimatedDog", "HotCherry", "Animals"]:
+        for backup_pack in ["AnimatedDog", "HotCherry", "Animals", "Memes"]:
             try:
                 st_set = await app.get_sticker_set(backup_pack)
                 for s in st_set.stickers:
@@ -100,7 +107,7 @@ async def sync_account_stickers():
             except Exception:
                 continue
 
-    logging.info(f"🎨 Total {len(ACCOUNT_STICKERS)} Stickers loaded from your account!")
+    logging.info(f"🎨 Aapki Telegram ID ke Total {len(ACCOUNT_STICKERS)} Stickers load ho chuke hain!")
 
 # Text Messages Handler
 @app.on_message(filters.text & ~filters.me & ~filters.bot)
@@ -128,13 +135,12 @@ async def handle_text(client: Client, message: Message):
     except Exception as e:
         logging.error(f"Text error: {e}")
 
-# Sticker Messages Handler (Aapke ID ke Stickers se Reply)
+# Sticker Messages Handler
 @app.on_message(filters.sticker & ~filters.me & ~filters.bot)
 async def handle_sticker(client: Client, message: Message):
     sender = message.from_user.first_name if message.from_user else "Dost"
     chat_id = message.chat.id
 
-    # Har incoming sticker ko cache me save karega
     if message.sticker and message.sticker.file_id:
         ACCOUNT_STICKERS.append(message.sticker.file_id)
 
@@ -161,7 +167,7 @@ async def handle_sticker(client: Client, message: Message):
 
 async def main():
     await app.start()
-    logging.info("⏳ Dialogs aur Account Stickers sync ho rahe hain...")
+    logging.info("⏳ Account Stickers sync ho rahe hain...")
     try:
         async for _ in app.get_dialogs(limit=25):
             pass
