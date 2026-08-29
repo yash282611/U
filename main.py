@@ -1,12 +1,13 @@
 import pyrogram.utils
 import pyrogram.client
 import pyrogram.session.session
+import pyrogram.methods.advanced.resolve_peer
 import pyrogram.raw.types.updates as raw_updates
 import pyrogram.raw.functions.updates as raw_update_funcs
 from pyrogram.raw.types import InputPeerChannel, InputPeerChat, InputPeerUser, InputPeerEmpty
 from pyrogram.errors import ChannelInvalid, ChannelPrivate, PeerIdInvalid, RPCError
 
-# 1. 64-Bit Telegram Channel IDs Patch
+# 1. ROOT LEVEL FIX: 64-Bit IDs & Low-Level Session Crash Neutralizer
 pyrogram.utils.MIN_CHANNEL_ID = -1009999999999999
 pyrogram.utils.MAX_CHANNEL_ID = -1000000000000
 pyrogram.utils.MIN_CHAT_ID = -999999999999
@@ -30,29 +31,29 @@ def patched_get_channel_id(peer_id: int) -> int:
 
 pyrogram.utils.get_peer_type = patched_get_peer_type
 pyrogram.utils.get_channel_id = patched_get_channel_id
+pyrogram.methods.advanced.resolve_peer.utils.get_peer_type = patched_get_peer_type
+pyrogram.methods.advanced.resolve_peer.utils.get_channel_id = patched_get_channel_id
 
-# Safe Low-Level Session Invoker (Catches Channel Crash at Root)
+# Safe Low-Level Session Invoker
 orig_session_invoke = pyrogram.session.session.Session.invoke
 
-async def safe_session_invoke(self, query, *args, **kwargs):
+async def safe_session_invoke(self, query, timeout=None):
     try:
-        return await orig_session_invoke(self, query, *args, **kwargs)
-    except (ChannelInvalid, ChannelPrivate, PeerIdInvalid):
+        return await orig_session_invoke(self, query, timeout=timeout)
+    except Exception as e:
         if isinstance(query, raw_update_funcs.GetChannelDifference):
             pts_val = getattr(query, "pts", 0)
-            return raw_updates.ChannelDifferenceEmpty(pts=pts_val, final=True)
-        return None
-    except RPCError as err:
-        if any(x in str(err) for x in ["CHANNEL_INVALID", "PEER_ID_INVALID", "CHANNEL_PRIVATE"]):
+            return raw_updates.ChannelDifferenceEmpty(final=True, pts=pts_val)
+        if any(x in str(e) for x in ["CHANNEL_INVALID", "PEER_ID_INVALID", "CHANNEL_PRIVATE"]):
             if isinstance(query, raw_update_funcs.GetChannelDifference):
                 pts_val = getattr(query, "pts", 0)
-                return raw_updates.ChannelDifferenceEmpty(pts=pts_val, final=True)
+                return raw_updates.ChannelDifferenceEmpty(final=True, pts=pts_val)
             return None
-        raise err
+        raise e
 
 pyrogram.session.session.Session.invoke = safe_session_invoke
 
-# Safe Resolve Peer Patch
+# Safe Peer Resolver (Prevents KeyError)
 orig_resolve_peer = pyrogram.client.Client.resolve_peer
 
 async def safe_resolve_peer(self, peer_id):
@@ -70,6 +71,17 @@ async def safe_resolve_peer(self, peer_id):
         return InputPeerEmpty()
 
 pyrogram.client.Client.resolve_peer = safe_resolve_peer
+
+# Safe Update Handler
+orig_handle_updates = pyrogram.client.Client.handle_updates
+
+async def safe_handle_updates(self, updates):
+    try:
+        await orig_handle_updates(self, updates)
+    except Exception:
+        pass
+
+pyrogram.client.Client.handle_updates = safe_handle_updates
 
 # 2. Main Bot Setup
 import asyncio
@@ -104,7 +116,7 @@ def fetch_gemini_reply(user_text: str, sender_name: str, is_group: bool) -> str:
         f"You are a young, cool Indian guy chatting casually {chat_context}.\n"
         f"Strict Rules for replying:\n"
         f"1. Reply strictly in 100% natural, casual conversational everyday Hinglish (Hindi written in English alphabets).\n"
-        f"2. Act like a real human friend typing fast on mobile (use words like: haan, bhai, yaar, arey, mast, sahi hai, bilkul, tu bata, abhi, bol).\n"
+        f"2. Act like a real human friend typing fast on mobile (words to use: haan, bhai, yaar, arey, mast, sahi hai, bilkul, tu bata, abhi, bol).\n"
         f"3. Directly answer what the friend said contextually:\n"
         f"   - If greetings ('hi', 'hello', 'oye', 'yoo', 'heyy', 'hu', 'uhii', 'hpo', 'h8', 'hii'): friendly casual reply (e.g. 'aur bhai kya chal raha hai?', 'haan bhai bol kya haal?')\n"
         f"   - If food ('khana khya', 'lunch', 'dinner'): natural reply (e.g. 'haan bhai bas abhi khaya, tune khaya kya?', 'abhi nahi yaar thodi der me khaunga')\n"
@@ -136,7 +148,7 @@ def fetch_gemini_reply(user_text: str, sender_name: str, is_group: bool) -> str:
         except Exception:
             continue
 
-    # Multi-Variant Fallbacks (Zero Static Repetition)
+    # Multi-Variant Fallbacks (Zero Repetition)
     low = user_text.lower().strip()
     if any(k in low for k in ["khana", "lunch", "dinner"]):
         return random.choice([
@@ -186,9 +198,9 @@ STICKER_VAULT = []
 @app.on_message(~filters.me)
 async def message_dispatcher(client: Client, message: Message):
     try:
-        if message.from_user and message.from_user.is_bot:
-            return
         if message.outgoing:
+            return
+        if message.from_user and (message.from_user.is_self or message.from_user.is_bot):
             return
 
         sender = message.from_user.first_name if message.from_user else "Dost"
