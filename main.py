@@ -9,16 +9,16 @@ from config import API_ID, API_HASH, SESSION_STRING, GEMINI_API_KEY, GROUP_LINK
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# 1. Gemini AI Setup (Active Model Auto-Connection)
+# 1. Gemini AI Setup (Google ki nayi API ke hisaab se fixed)
 genai.configure(api_key=GEMINI_API_KEY)
 
 def connect_best_model():
-    # Yahan asli aur valid models ke naam daal diye hain
+    # Ab hum wahi model use karenge jo Google ne log me manga hai (3.6-flash)
     priority_models = [
-        "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
-        "gemini-1.5-flash-8b"
+        "gemini-3.6-flash",
+        "gemini-3.7-flash",
+        "gemini-3.5-flash",
+        "gemini-flash-latest"
     ]
     try:
         all_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
@@ -29,7 +29,6 @@ def connect_best_model():
                 if target in full_name:
                     try:
                         m = genai.GenerativeModel(full_name)
-                        # Startup par faltu request hata di taaki limit waste na ho
                         logging.info(f"🎯 Connected 100% to Active AI Model: {full_name}")
                         return m
                     except Exception as err:
@@ -38,8 +37,8 @@ def connect_best_model():
     except Exception as e:
         logging.error(f"Error finding model: {e}")
 
-    # Default fallback model
-    return genai.GenerativeModel("models/gemini-1.5-flash")
+    # Default fallback to 3.6-flash as requested by Google API
+    return genai.GenerativeModel("models/gemini-3.6-flash")
 
 active_ai = connect_best_model()
 
@@ -49,9 +48,9 @@ def get_ai_reply(user_text: str, sender_name: str) -> str:
 
 Chat Guidelines:
 1. Always understand chat short-forms & slang:
-   - "kkrh" -> kya kar rahe ho (tell what you are doing casually, e.g., 'kuch nahi bhai bas chill kar raha hu. tu bata?')
-   - "kidar h" -> kahan ho (tell where you are casually)
-   - "kaisa h" -> kaisa hai (reply how you are)
+   - "kkrh" -> kya kar rahe ho
+   - "kidar h" -> kahan ho
+   - "kaisa h" -> kaisa hai
    - "yo" / "hi" / "oye" -> casual greeting
 2. Reply strictly based on what the user said in 1 short line.
 3. NEVER repeat fixed canned lines.
@@ -134,5 +133,5 @@ def on_sticker_message(client: Client, message: Message):
         logging.error(f"Sticker error: {e}")
 
 if __name__ == "__main__":
-    logging.info("🚀 AI Human Bot is Starting...")
+    logging.info("🚀 AI Human Bot is Starting with New Gemini API...")
     app.run()
