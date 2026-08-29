@@ -1,66 +1,66 @@
-import asyncio
+import time
 import random
 import logging
-from pyrogram import Client, filters, idle
+import json
+import urllib.request
+from pyrogram import Client, filters
 from pyrogram.types import Message
 from pyrogram.enums import ChatAction
-import google.generativeai as genai
 from config import API_ID, API_HASH, SESSION_STRING, GEMINI_API_KEY, GROUP_LINK
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# 1. Gemini AI Active Model Auto-Connect
-genai.configure(api_key=GEMINI_API_KEY)
+# Pure Gemini AI Response Generator (Direct REST API)
+def get_ai_response(user_text: str, sender_name: str) -> str:
+    prompt = f"""You are a cool Indian friend chatting on Telegram. Reply in 100% natural, casual Hinglish (Hindi words in English script).
 
-def connect_best_model():
-    priority_models = [
-        "gemini-3.6-flash",
-        "gemini-3.7-flash",
-        "gemini-3.5-flash",
+Rules:
+1. Understand chat short-forms & slang:
+   - "kkrh" / "kya kr rha h" -> "kuch nahi bhai, bas phone chala raha hu. tu bata?"
+   - "kidar h" -> "ghar pe hi hu bhai, tu bata kya scene?"
+   - "kaisa h" -> "ekdum badhiya bhai, tu suna kaisa hai?"
+   - "hi" / "yoo" / "oye" -> "haan bhai bol kya haal chaal?"
+2. Reply in 1 short, dynamic line like a real person.
+3. NEVER repeat the same canned answer. Always reply according to the message.
+4. If asked for link/group, share: {GROUP_LINK}
+
+User ({sender_name}) says: "{user_text}"
+Your short Hinglish reply:"""
+
+    # Active fast models on your account
+    active_models = [
+        "gemini-2.5-flash",
         "gemini-flash-latest",
+        "gemini-2.5-flash-lite",
         "gemini-1.5-flash"
     ]
-    try:
-        all_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        for target in priority_models:
-            for full_name in all_models:
-                if target in full_name:
-                    try:
-                        m = genai.GenerativeModel(full_name)
-                        m.generate_content("hi")
-                        logging.info(f"🎯 AI Model Connected: {full_name}")
-                        return m
-                    except Exception:
-                        continue
-    except Exception as e:
-        logging.error(f"Model selection error: {e}")
-    return genai.GenerativeModel("gemini-3.6-flash")
 
-active_ai = connect_best_model()
+    for model_name in active_models:
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature": 0.9,
+                    "maxOutputTokens": 70
+                }
+            }
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=6) as response:
+                res_data = json.loads(response.read().decode("utf-8"))
+                reply = res_data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                if reply:
+                    return reply
+        except Exception as e:
+            logging.error(f"Error on {model_name}: {e}")
+            continue
 
-# 2. Pure Dynamic AI Reply Generator
-def get_ai_reply(user_text: str, sender_name: str) -> str:
-    prompt = f"""You are a cool, casual Indian friend chatting on Telegram. Reply like an authentic real human in natural everyday Hinglish (Hindi words written in English alphabet).
-
-Chat Guidelines:
-1. Always understand chat short-forms & slang (e.g. 'kkrh' -> kya kar rahe ho, 'kidar h' -> kahan ho, 'kaisa h' -> kaisa hai, 'yo', 'oye', 'hmm').
-2. Reply strictly based on what the user said in 1 short line.
-3. NEVER repeat canned lines.
-4. NEVER say you are an AI or bot.
-5. If the user asks for a group, channel, or link, share: {GROUP_LINK}
-
-Friend ({sender_name}) says: "{user_text}"
-Your Hinglish reply:"""
-
-    try:
-        response = active_ai.generate_content(prompt)
-        if response and response.text:
-            return response.text.strip()
-    except Exception as e:
-        logging.error(f"AI response error: {e}")
     return ""
 
-# 3. Pyrogram Client & Live Sticker Pack Loader
 app = Client(
     "group_human_userbot",
     api_id=API_ID,
@@ -68,86 +68,34 @@ app = Client(
     session_string=SESSION_STRING
 )
 
-STICKER_CACHE = []
-
-async def load_sticker_packs():
-    popular_packs = ["Memes", "Animals", "AnimatedDog", "HotCherry", "DuckFlock"]
-    for pack in popular_packs:
-        try:
-            st_set = await app.get_sticker_set(pack)
-            for s in st_set.stickers:
-                STICKER_CACHE.append(s.file_id)
-        except Exception:
-            continue
-    logging.info(f"🎨 Total {len(STICKER_CACHE)} Stickers loaded successfully!")
-
-# Text Messages Handler (100% Dynamic AI)
 @app.on_message(filters.text & ~filters.me & ~filters.bot)
-async def on_text_message(client: Client, message: Message):
+def handle_messages(client: Client, message: Message):
     sender = message.from_user.first_name if message.from_user else "Dost"
     user_text = message.text
     chat_id = message.chat.id
 
-    logging.info(f"📩 Naya Text [{sender}]: {user_text}")
+    logging.info(f"📩 Naya Message [{sender}]: {user_text}")
 
     try:
+        # Seen & Typing Simulation
         try:
-            await client.read_chat_history(chat_id)
-            await client.send_chat_action(chat_id, ChatAction.TYPING)
+            client.read_chat_history(chat_id)
+            client.send_chat_action(chat_id, ChatAction.TYPING)
         except Exception:
             pass
 
-        await asyncio.sleep(random.uniform(1.2, 2.0))
+        time.sleep(random.uniform(1.0, 1.8))
 
-        reply = await asyncio.to_thread(get_ai_reply, user_text, sender)
-        if reply:
-            await message.reply_text(text=reply, quote=True, disable_web_page_preview=True)
-            logging.info(f"✅ AI Replied to [{sender}]: {reply}")
+        # Fetch Real AI Answer
+        reply_text = get_ai_response(user_text, sender)
 
-    except Exception as e:
-        logging.error(f"Text error: {e}")
-
-# Sticker Messages Handler (100% Working Live Sticker Reply)
-@app.on_message(filters.sticker & ~filters.me & ~filters.bot)
-async def on_sticker_message(client: Client, message: Message):
-    sender = message.from_user.first_name if message.from_user else "Dost"
-    chat_id = message.chat.id
-
-    logging.info(f"🎨 Sticker received from [{sender}]")
-
-    try:
-        try:
-            await client.read_chat_history(chat_id)
-            await client.send_chat_action(chat_id, ChatAction.CHOOSE_STICKER)
-        except Exception:
-            pass
-
-        await asyncio.sleep(random.uniform(1.0, 1.8))
-
-        if STICKER_CACHE:
-            random_sticker = random.choice(STICKER_CACHE)
-            await message.reply_sticker(sticker=random_sticker, quote=True)
-            logging.info(f"✅ Replied Sticker to [{sender}]")
-        else:
-            # Fallback agar pack load na ho: same sticker reply
-            await message.reply_sticker(sticker=message.sticker.file_id, quote=True)
+        if reply_text:
+            message.reply_text(text=reply_text, quote=True, disable_web_page_preview=True)
+            logging.info(f"✅ AI Replied to [{sender}]: {reply_text}")
 
     except Exception as e:
-        logging.error(f"Sticker send error: {e}")
-
-async def main():
-    await app.start()
-    logging.info("⏳ Dialogs aur Sticker cache load ho rahe hain...")
-    try:
-        async for _ in app.get_dialogs(limit=30):
-            pass
-    except Exception:
-        pass
-
-    await load_sticker_packs()
-    logging.info("🚀 AI Human Bot is LIVE & Ready for Text + Stickers!")
-    await idle()
-    await app.stop()
+        logging.error(f"Message Handler Error: {e}")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    logging.info("🚀 AI Bot is LIVE & Listening...")
+    app.run()
