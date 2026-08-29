@@ -1,6 +1,7 @@
 import time
 import random
 import logging
+import os
 import re
 import pyrogram.utils
 import pyrogram.client
@@ -11,14 +12,11 @@ from pyrogram.enums import ChatAction
 from openai import OpenAI
 from collections import defaultdict
 
-# Config file se sab import kar rahe hain
 from config import API_ID, API_HASH, SESSION_STRING, GROQ_API_KEY, GROUP_LINK
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# ==========================================
-# Root Level Fix for Pyrogram Group Peers
-# ==========================================
+# Pyrogram peer patch
 pyrogram.utils.MIN_CHANNEL_ID = -1009999999999999
 pyrogram.utils.MAX_CHANNEL_ID = -1000000000000
 pyrogram.utils.MIN_CHAT_ID = -999999999999
@@ -62,76 +60,46 @@ async def safe_handle_updates(self, updates):
         pass
 pyrogram.client.Client.handle_updates = safe_handle_updates
 
-# ==========================================
-# Groq API Setup
-# ==========================================
-try:
-    groq_client = OpenAI(
-        api_key=GROQ_API_KEY,
-        base_url="https://api.groq.com/openai/v1",
-    )
-    logging.info("🎯 Connected to Groq")
-except Exception as e:
-    logging.error(f"Groq connection error: {e}")
+groq_client = OpenAI(
+    api_key=GROQ_API_KEY,
+    base_url="https://api.groq.com/openai/v1",
+)
 
-# ==========================================
-# Chat History Memory 
-# ==========================================
 chat_histories = defaultdict(list)
 
 def get_ai_reply(chat_id: int, user_text: str, sender_name: str) -> str:
-    system_prompt = f"""You are a real 19-year-old Indian guy chatting with your close friend on Telegram. 
-You MUST act exactly like a normal human being. NEVER act like an AI or a bot.
+    system_prompt = f"""You are a close 19-year-old Indian friend chatting naturally in Hinglish.
+Reply directly, smartly, and contextually to what the user said. If they ask for shayari, send a nice 2-line shayari.
+Keep replies short and human-like. Never output usernames, reasoning steps, or rule numbers."""
 
-Rules:
-1. Talk in casual everyday Hinglish (e.g., 'haan bhai', 'kya scene hai').
-2. Read the context and reply DIRECTLY to what the user just said. Be logical.
-3. Keep it strictly to 1 short line (max 5-10 words).
-4. NEVER repeat the same sentence. Think and give a fresh, natural reply every time.
-5. DO NOT output the speaker's name. Just give the raw reply text.
-"""
     history = chat_histories[chat_id]
-    history.append({"role": "user", "content": f"{sender_name}: {user_text}"})
+    history.append({"role": "user", "content": user_text})
 
-    if len(history) > 10:
+    if len(history) > 8:
         history.pop(0)
 
     messages = [{"role": "system", "content": system_prompt}] + list(history)
 
-    # Sirf sabse reliable model use karenge
-    target_model = "llama-3.1-8b-instant"
+    # Sirf do valid Groq models
+    for model_name in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
+        try:
+            response = groq_client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                temperature=0.8,
+                max_tokens=80
+            )
+            if response.choices:
+                reply = response.choices[0].message.content.strip()
+                reply = re.sub(r'<think>.*?</think>', '', reply, flags=re.DOTALL).strip()
+                history.append({"role": "assistant", "content": reply})
+                return reply
+        except Exception as e:
+            logging.error(f"Error on {model_name}: {e}")
+            continue
 
-    try:
-        response = groq_client.chat.completions.create(
-            model=target_model, 
-            messages=messages,
-            temperature=0.8, 
-            max_tokens=60
-        )
-        
-        if response.choices:
-            reply_text = response.choices[0].message.content.strip()
-            
-            # Filters
-            reply_text = re.sub(r'<think>.*?</think>', '', reply_text, flags=re.DOTALL).strip()
-            reply_text = reply_text.replace(f"{sender_name}:", "").replace("Bot:", "").replace("User:", "").strip()
-            reply_text = reply_text.replace('"', '').replace("'", "")
+    return "Bhai Groq API connect nahi ho rahi, API Key ya limit check kar ek baar."
 
-            if reply_text:
-                history.append({"role": "assistant", "content": reply_text})
-                return reply_text
-                
-    except Exception as e:
-        # Railway ke logs mein error dikhega
-        logging.error(f"❌ GROQ API FAIL HO GAYI: {e}")
-        # Agar API key dead hui, toh bot ye reply dega taaki tujhe pata chal jaye
-        return "bhai abhi mera dimaag kharab hai (API limit/error), thodi der baad baat karte hain"
-
-    return "kya bol rha h yaar"
-
-# ==========================================
-# Pyrogram Client Start
-# ==========================================
 app = Client(
     name="group_human_userbot",
     api_id=API_ID,
@@ -149,8 +117,6 @@ def on_text_message(client: Client, message: Message):
         user_text = message.text
         chat_id = message.chat.id
 
-        logging.info(f"📩 Naya Text [{sender}]: {user_text}")
-
         try:
             if not message.outgoing:
                 client.read_chat_history(chat_id)
@@ -158,16 +124,14 @@ def on_text_message(client: Client, message: Message):
         except Exception:
             pass
 
-        time.sleep(random.uniform(1.5, 3.0))
+        time.sleep(random.uniform(1.2, 2.5))
 
         reply = get_ai_reply(chat_id, user_text, sender)
         if reply:
             message.reply_text(text=reply, quote=True, disable_web_page_preview=True)
-            logging.info(f"✅ Human Replied to [{sender}]: {reply}")
 
     except Exception as e:
-        logging.error(f"Text error: {e}")
+        logging.error(f"Handler error: {e}")
 
 if __name__ == "__main__":
-    logging.info("🚀 Userbot is Starting...")
     app.run()
