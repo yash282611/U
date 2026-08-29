@@ -84,10 +84,10 @@ def get_ai_reply(chat_id: int, user_text: str, sender_name: str) -> str:
 You MUST act exactly like a normal human being. NEVER act like an AI or a bot.
 
 Rules:
-1. Talk in casual everyday Hinglish.
-2. Reply DIRECTLY to what the user just said.
+1. Talk in casual everyday Hinglish (e.g., 'haan bhai', 'kya scene hai').
+2. Read the context and reply DIRECTLY to what the user just said. Be logical.
 3. Keep it strictly to 1 short line (max 5-10 words).
-4. DO NOT output your thought process. 
+4. NEVER repeat the same sentence. Think and give a fresh, natural reply every time.
 5. DO NOT output the speaker's name. Just give the raw reply text.
 """
     history = chat_histories[chat_id]
@@ -98,51 +98,36 @@ Rules:
 
     messages = [{"role": "system", "content": system_prompt}] + list(history)
 
-    # Sare possible models ki list, ek ek karke chup chap try karega
-    models_to_try = [
-        "llama3-8b-8192",
-        "llama-3.1-8b-instant",
-        "llama-3.3-70b-versatile",
-        "gemma2-9b-it",
-        "mixtral-8x7b-32768"
-    ]
+    # Sirf sabse reliable model use karenge
+    target_model = "llama-3.1-8b-instant"
 
-    for model_name in models_to_try:
-        try:
-            response = groq_client.chat.completions.create(
-                model=model_name, 
-                messages=messages,
-                temperature=0.8, 
-                max_tokens=50
-            )
-            if response.choices:
-                reply_text = response.choices[0].message.content.strip()
+    try:
+        response = groq_client.chat.completions.create(
+            model=target_model, 
+            messages=messages,
+            temperature=0.8, 
+            max_tokens=60
+        )
+        
+        if response.choices:
+            reply_text = response.choices[0].message.content.strip()
+            
+            # Filters
+            reply_text = re.sub(r'<think>.*?</think>', '', reply_text, flags=re.DOTALL).strip()
+            reply_text = reply_text.replace(f"{sender_name}:", "").replace("Bot:", "").replace("User:", "").strip()
+            reply_text = reply_text.replace('"', '').replace("'", "")
+
+            if reply_text:
+                history.append({"role": "assistant", "content": reply_text})
+                return reply_text
                 
-                # Faltu tags aur naam hatane ka jugaad
-                reply_text = re.sub(r'<think>.*?</think>', '', reply_text, flags=re.DOTALL).strip()
-                reply_text = reply_text.replace(f"{sender_name}:", "").replace("Bot:", "").replace("User:", "").strip()
-                reply_text = reply_text.replace('"', '').replace("'", "")
+    except Exception as e:
+        # Railway ke logs mein error dikhega
+        logging.error(f"❌ GROQ API FAIL HO GAYI: {e}")
+        # Agar API key dead hui, toh bot ye reply dega taaki tujhe pata chal jaye
+        return "bhai abhi mera dimaag kharab hai (API limit/error), thodi der baad baat karte hain"
 
-                if reply_text:
-                    history.append({"role": "assistant", "content": reply_text})
-                    return reply_text
-        except Exception:
-            # Agar error aaya toh chup chap agla model try karega, koi faltu message nahi bhejega
-            continue
-
-    # =========================================================
-    # AGAR API PURI TARAH FAIL HO JAYE TO YE INSANO WALE REPLY JAYENGE
-    # =========================================================
-    human_fallbacks = [
-        "hmm", 
-        "acha", 
-        "kya bol raha hai bhai", 
-        "sahi hai", 
-        "haan yaar", 
-        "samajh nahi aaya kya bola tune",
-        "or bata"
-    ]
-    return random.choice(human_fallbacks)
+    return "kya bol rha h yaar"
 
 # ==========================================
 # Pyrogram Client Start
