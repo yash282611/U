@@ -8,11 +8,11 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 from pyrogram.enums import ChatAction
 from openai import OpenAI
-from config import API_ID, API_HASH, SESSION_STRING, GROK_API_KEY, GROUP_LINK
+from config import API_ID, API_HASH, SESSION_STRING, GROQ_API_KEY, GROUP_LINK
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# 1. ROOT LEVEL FIX
+# 1. ROOT LEVEL FIX (Group Peer Errors ko hatane ke liye)
 pyrogram.utils.MIN_CHANNEL_ID = -1009999999999999
 pyrogram.utils.MAX_CHANNEL_ID = -1000000000000
 pyrogram.utils.MIN_CHAT_ID = -999999999999
@@ -56,17 +56,17 @@ async def safe_handle_updates(self, updates):
         pass
 pyrogram.client.Client.handle_updates = safe_handle_updates
 
-# 2. Grok AI Setup (xAI)
+# 2. Groq Cloud API Setup (llama3-70b-8192 ke liye sahi URL)
 try:
-    xai_client = OpenAI(
-        api_key=GROK_API_KEY,
-        base_url="https://api.x.ai/v1",
+    groq_client = OpenAI(
+        api_key=GROQ_API_KEY,
+        base_url="https://api.groq.com/openai/v1",
     )
-    logging.info("🎯 Connected 100% to Grok API")
+    logging.info("🎯 Connected 100% to Groq Cloud API")
 except Exception as e:
-    logging.error(f"Grok connection error: {e}")
+    logging.error(f"Groq connection error: {e}")
 
-# 3. Dynamic Grok Hinglish Generator
+# 3. Dynamic Groq Hinglish Generator
 def get_ai_reply(user_text: str, sender_name: str) -> str:
     system_prompt = f"""You are a cool, casual Indian friend chatting on Telegram. Reply like an authentic real human in natural everyday Hinglish (Hindi words written in English alphabet).
 
@@ -78,12 +78,12 @@ Chat Guidelines:
    - "yo" / "hi" / "oye" -> casual greeting
 2. Reply strictly based on what the user said in 1 short line.
 3. NEVER repeat fixed canned lines.
-4. NEVER say you are an AI, Grok, or bot.
+4. NEVER say you are an AI or bot.
 5. If the user asks for a group, channel, or link, share: {GROUP_LINK}"""
 
     try:
-        response = xai_client.chat.completions.create(
-            model="grok-beta",  # <--- Yahan grok-beta kar diya hai jo xAI ka standard model hai
+        response = groq_client.chat.completions.create(
+            model="llama3-70b-8192",  # Tumhari demand wala model
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Friend ({sender_name}) says: \"{user_text}\"\nYour Hinglish reply:"}
@@ -94,7 +94,7 @@ Chat Guidelines:
         if response.choices:
             return response.choices[0].message.content.strip()
     except Exception as e:
-        logging.error(f"Grok response generation error: {e}")
+        logging.error(f"Groq response generation error: {e}")
     return ""
 
 STICKERS = [
@@ -135,11 +135,11 @@ def on_text_message(client: Client, message: Message):
         reply = get_ai_reply(user_text, sender)
         if reply:
             message.reply_text(text=f"🤖 {reply}", quote=True, disable_web_page_preview=True)
-            logging.info(f"✅ Grok Replied to [{sender}]: {reply}")
+            logging.info(f"✅ Groq Replied to [{sender}]: {reply}")
 
     except Exception as e:
         logging.error(f"Text error: {e}")
 
 if __name__ == "__main__":
-    logging.info("🚀 AI Human Bot is Starting with GROK API...")
+    logging.info("🚀 AI Human Bot is Starting with Groq llama3-70b-8192...")
     app.run()
