@@ -8,6 +8,7 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 from pyrogram.enums import ChatAction
 from openai import OpenAI
+from collections import defaultdict
 from config import API_ID, API_HASH, SESSION_STRING, GROUP_LINK
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -70,40 +71,45 @@ try:
 except Exception as e:
     logging.error(f"Grok connection error: {e}")
 
-# 100% Human-Like Ultra-Natural Hinglish Generator
-def get_ai_reply(user_text: str, sender_name: str) -> str:
-    system_prompt = f"""You are a real 19-year-old college guy chatting casually with your close friend on Telegram. 
+# Har chat ki history yaad rakhne ke liye memory dictionary (Max 10 messages yaad rakhega)
+chat_histories = defaultdict(list)
+
+def get_ai_reply(chat_id: int, user_text: str, sender_name: str) -> str:
+    system_prompt = f"""You are a real close Indian friend chatting casually on Telegram. 
 Talk like an absolute human, not a robot or AI assistant.
 
-Strict Rules for Real Human Vibe:
-1. Use natural Indian slang and everyday Hinglish (Hindi words in English letters, like "bhai", "kya re", "sahi hai", "arre", "dekh", "achha").
-2. Keep replies short, casual, and conversational (1 short line, max 5-10 words usually).
-3. Vary your tone! Sometimes reply with just a laughing emoji, sometimes a short question back, sometimes casual agreement.
-4. NEVER use formal words, proper punctuation like a book, or robotic template replies.
-5. NEVER say you are an AI, bot, or language model. Act completely human.
-6. If the user asks for a group, channel, or link, share: {GROUP_LINK}
+Rules:
+1. Use natural Indian slang and everyday Hinglish (Hindi words in English letters, like "bhai", "sahi hai", "arre", "dekh", "kya scene hai", "haan yaar").
+2. Look at the chat history and reply naturally to keep the conversation flowing like real humans do. 
+3. Keep it conversational, casual, and don't sound like a customer care bot.
+4. NEVER say you are an AI, bot, or language model. Act completely human.
+5. If they ask for a group/channel link, share: {GROUP_LINK}"""
 
-Friend ({sender_name}) says: "{user_text}"
-Your natural human Hinglish reply:"""
+    # History manage karo (last 10 messages store rahenge)
+    history = chat_histories[chat_id]
+    history.append({"role": "user", "content": f"{sender_name}: {user_text}"})
+    
+    if len(history) > 10:
+        history.pop(0)
+
+    messages = [{"role": "system", "content": system_prompt}] + list(history)
 
     try:
         response = groq_client.chat.completions.create(
             model="llama3-70b-8192",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_text}
-            ],
-            temperature=1.0,  # Thoda high temperature taaki har baar alag aur naya jhabardast reply de
-            max_tokens=40
+            messages=messages,
+            temperature=0.9,
+            max_tokens=60
         )
         if response.choices:
-            return response.choices[0].message.content.strip()
+            reply_text = response.choices[0].message.content.strip()
+            # Bot ka jawab bhi history mein daal do taaki agni baar context yaad rahe
+            history.append({"role": "assistant", "content": reply_text})
+            return reply_text
     except Exception as e:
         logging.error(f"Groq response generation error: {e}")
     
-    # Fallback agar kabhi API slow ho toh alag-alag casual lines me se ek uthayega
-    fallbacks = ["bol bhai", "kya bol rha h", "hmm sun rha hu", "haan bata", "kya scene h"]
-    return random.choice(fallbacks)
+    return "haan bhai, bol kya chal rha hai"
 
 STICKERS = [
     "CAACAgIAAxkBAAEK1eBlvK9-h3V1Lh6DkgABw1b4a3kAAj0AA8G2wQgYjGfXW3wFHgQ",
@@ -116,7 +122,7 @@ app = Client(
     "group_human_userbot",
     api_id=API_ID,
     api_hash=API_HASH,
-    session_string=SESSION_STRING
+    SESSION_STRING=SESSION_STRING
 )
 
 @app.on_message(filters.text & ~filters.bot)
@@ -138,18 +144,17 @@ def on_text_message(client: Client, message: Message):
         except Exception:
             pass
 
-        # Insaan ki tarah thoda sochne ka delay (random 1.5 se 3 second tak)
+        # Insaan ki tarah 1.5 se 3 second ka real typing delay
         time.sleep(random.uniform(1.5, 3.0))
 
-        reply = get_ai_reply(user_text, sender)
+        reply = get_ai_reply(chat_id, user_text, sender)
         if reply:
-            # Bina kisi roboti emoji ke seedha normal text bhejo taaki asli lage
             message.reply_text(text=reply, quote=True, disable_web_page_preview=True)
-            logging.info(f"✅ Human-like Replied to [{sender}]: {reply}")
+            logging.info(f"✅ Contextual Human-like Replied to [{sender}]: {reply}")
 
     except Exception as e:
         logging.error(f"Text error: {e}")
 
 if __name__ == "__main__":
-    logging.info("🚀 100% Human-Like AI Userbot is Starting...")
+    logging.info("🚀 100% Memory-Based Human AI Userbot is Starting...")
     app.run()
