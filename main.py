@@ -100,24 +100,38 @@ Strict Rules for chatting:
 
     messages = [{"role": "system", "content": system_prompt}] + list(history)
 
-    try:
-        # ====================================================
-        # YAHAN GROQ KA SABSE NAYA AUR ACTIVE MODEL DAALA HAI
-        # ====================================================
-        response = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant", 
-            messages=messages,
-            temperature=0.9, 
-            max_tokens=50
-        )
-        if response.choices:
-            reply_text = response.choices[0].message.content.strip()
+    # ====================================================
+    # MASTER JUGAAD: Agar ek model band hoga, toh bot auto-switch kar lega
+    # ====================================================
+    models_to_try = [
+        "llama-3.3-70b-versatile",  # Sabse naya aur best model
+        "gemma2-9b-it",             # Google ka model (humesha chalta hai)
+        "llama-3.2-3b-preview",     # Backup model
+        "mixtral-8x7b-32768"        # Last option
+    ]
+
+    last_error = ""
+
+    for model_name in models_to_try:
+        try:
+            response = groq_client.chat.completions.create(
+                model=model_name, 
+                messages=messages,
+                temperature=0.9, 
+                max_tokens=50
+            )
+            if response.choices:
+                reply_text = response.choices[0].message.content.strip()
+                history.append({"role": "assistant", "content": reply_text})
+                return reply_text
+        except Exception as e:
+            # Agar error aaya, toh agla model try karega
+            logging.warning(f"Model {model_name} fail ho gaya: {e}")
+            last_error = str(e)
+            continue
             
-            history.append({"role": "assistant", "content": reply_text})
-            return reply_text
-    except Exception as e:
-        logging.error(f"Groq response generation error: {e}")
-        return f"Bhai AI me error aa raha hai, ye dekh: {e}"
+    # Agar chaaro ke chaaro model fail ho gaye tab ye chat me aayega
+    return f"Bhai AI ke saare model band pade hain, last error: {last_error}"
 
 # ==========================================
 # Pyrogram Client Start
@@ -159,5 +173,5 @@ def on_text_message(client: Client, message: Message):
         logging.error(f"Text error: {e}")
 
 if __name__ == "__main__":
-    logging.info("🚀 100% Real Human AI Userbot is Starting with Active Model...")
+    logging.info("🚀 100% Real Human AI Userbot is Starting with Auto-Model Switcher...")
     app.run()
