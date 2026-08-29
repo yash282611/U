@@ -83,7 +83,7 @@ Chat Guidelines:
 
     try:
         response = xai_client.chat.completions.create(
-            model="grok-2-latest",  # Sahi aur updated Grok model
+            model="grok-2",  # Sahi aur updated Grok model
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Friend ({sender_name}) says: \"{user_text}\"\nYour Hinglish reply:"}
