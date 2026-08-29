@@ -1,7 +1,6 @@
 import time
 import random
 import logging
-import os
 import re
 import pyrogram.utils
 import pyrogram.client
@@ -71,7 +70,7 @@ try:
         api_key=GROQ_API_KEY,
         base_url="https://api.groq.com/openai/v1",
     )
-    logging.info("🎯 Connected 100% to Groq Cloud API")
+    logging.info("🎯 Connected to Groq")
 except Exception as e:
     logging.error(f"Groq connection error: {e}")
 
@@ -82,17 +81,15 @@ chat_histories = defaultdict(list)
 
 def get_ai_reply(chat_id: int, user_text: str, sender_name: str) -> str:
     system_prompt = f"""You are a real 19-year-old Indian guy chatting with your close friend on Telegram. 
-You MUST act exactly like a normal human being. NEVER act like an AI, bot, or assistant.
+You MUST act exactly like a normal human being. NEVER act like an AI or a bot.
 
-Strict Rules for chatting:
-1. Talk in casual everyday Hinglish (e.g., 'haan bhai', 'kya scene hai', 'kuch nahi yaar', 'tu bata').
-2. Read the context and reply DIRECTLY to what the user just said. 
-3. Keep it strictly to 1 short line (max 5-10 words). Real humans don't type long paragraphs.
-4. NEVER repeat the same sentence. Think and give a fresh, natural reply every time.
-5. CRITICAL: ONLY output the exact reply text. DO NOT output the speaker's name or any prefixes (Do not write '{sender_name}:' or 'Bot:'). Just give the answer.
-
-If they ask for a group or channel link, share: {GROUP_LINK}"""
-
+Rules:
+1. Talk in casual everyday Hinglish.
+2. Reply DIRECTLY to what the user just said.
+3. Keep it strictly to 1 short line (max 5-10 words).
+4. DO NOT output your thought process. 
+5. DO NOT output the speaker's name. Just give the raw reply text.
+"""
     history = chat_histories[chat_id]
     history.append({"role": "user", "content": f"{sender_name}: {user_text}"})
 
@@ -101,72 +98,51 @@ If they ask for a group or channel link, share: {GROUP_LINK}"""
 
     messages = [{"role": "system", "content": system_prompt}] + list(history)
 
-    try:
-        # 1. API se models ki list nikaalo
-        available_models = [m.id for m in groq_client.models.list().data]
-        
-        # 2. VIP LIST (Sirf wo models jo actual mein chatting ke liye best hain)
-        priority_models = [
-            "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant",
-            "llama3-8b-8192",
-            "gemma2-9b-it"
-        ]
-        
-        # 3. List mein se jo sabse pehla VIP model zinda mile, use utha lo
-        target_model = None
-        for pm in priority_models:
-            if pm in available_models:
-                target_model = pm
-                break
-        
-        # Agar VIP list fail ho jaye, toh koi aur text model dhoondo par Llama-Guard / Deepseek bilkul mat uthao
-        if not target_model:
-            for m in available_models:
-                m_lower = m.lower()
-                if ("llama" in m_lower or "gemma" in m_lower or "mixtral" in m_lower) and \
-                   "guard" not in m_lower and "vision" not in m_lower and "deepseek" not in m_lower and "r1" not in m_lower:
-                    target_model = m
-                    break
+    # Sare possible models ki list, ek ek karke chup chap try karega
+    models_to_try = [
+        "llama3-8b-8192",
+        "llama-3.1-8b-instant",
+        "llama-3.3-70b-versatile",
+        "gemma2-9b-it",
+        "mixtral-8x7b-32768"
+    ]
 
-        if not target_model:
-            return "Bhai Groq par koi chatting model zinda nahi hai."
-
-        # Model chalana shuru karo
-        response = groq_client.chat.completions.create(
-            model=target_model, 
-            messages=messages,
-            temperature=0.8, 
-            max_tokens=50
-        )
-        
-        if response.choices:
-            reply_text = response.choices[0].message.content.strip()
-            
-            # FINAL CLEANUP (Filters)
-            reply_text = re.sub(r'<think>.*?</think>', '', reply_text, flags=re.DOTALL).strip()
-            
-            # Agar AI ne galti se saamne wale ka naam (SHINchan) chipka diya ho, toh use delete karo
-            if sender_name in reply_text:
-                reply_text = reply_text.replace(sender_name, "").replace(":", "").strip()
-            if "Bot:" in reply_text or "User:" in reply_text:
-                reply_text = reply_text.replace("Bot:", "").replace("User:", "").strip()
+    for model_name in models_to_try:
+        try:
+            response = groq_client.chat.completions.create(
+                model=model_name, 
+                messages=messages,
+                temperature=0.8, 
+                max_tokens=50
+            )
+            if response.choices:
+                reply_text = response.choices[0].message.content.strip()
                 
-            reply_text = reply_text.replace('"', '').replace("'", "")
+                # Faltu tags aur naam hatane ka jugaad
+                reply_text = re.sub(r'<think>.*?</think>', '', reply_text, flags=re.DOTALL).strip()
+                reply_text = reply_text.replace(f"{sender_name}:", "").replace("Bot:", "").replace("User:", "").strip()
+                reply_text = reply_text.replace('"', '').replace("'", "")
 
-            # Agar naam delete karne ke baad message bilkul khali ho jaye (Fallback)
-            if not reply_text or len(reply_text) < 2:
-                fallbacks = ["haan bhai bol", "kya keh raha hai?", "hmm", "sahi hai"]
-                reply_text = random.choice(fallbacks)
+                if reply_text:
+                    history.append({"role": "assistant", "content": reply_text})
+                    return reply_text
+        except Exception:
+            # Agar error aaya toh chup chap agla model try karega, koi faltu message nahi bhejega
+            continue
 
-            history.append({"role": "assistant", "content": reply_text})
-            return reply_text
-            
-        return "kya bol rha h yaar samajh nhi aara"
-        
-    except Exception as e:
-        logging.error(f"Groq API error: {e}")
-        return f"Bhai AI me error aa raha hai: {e}"
+    # =========================================================
+    # AGAR API PURI TARAH FAIL HO JAYE TO YE INSANO WALE REPLY JAYENGE
+    # =========================================================
+    human_fallbacks = [
+        "hmm", 
+        "acha", 
+        "kya bol raha hai bhai", 
+        "sahi hai", 
+        "haan yaar", 
+        "samajh nahi aaya kya bola tune",
+        "or bata"
+    ]
+    return random.choice(human_fallbacks)
 
 # ==========================================
 # Pyrogram Client Start
@@ -208,5 +184,5 @@ def on_text_message(client: Client, message: Message):
         logging.error(f"Text error: {e}")
 
 if __name__ == "__main__":
-    logging.info("🚀 100% Real Human AI Userbot is Starting with VIP Models...")
+    logging.info("🚀 Userbot is Starting...")
     app.run()
