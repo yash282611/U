@@ -12,7 +12,7 @@ from config import API_ID, API_HASH, SESSION_STRING, GROK_API_KEY, GROUP_LINK
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# 1. ROOT LEVEL FIX (Group Peer Errors ko hatane ke liye)
+# 1. ROOT LEVEL FIX
 pyrogram.utils.MIN_CHANNEL_ID = -1009999999999999
 pyrogram.utils.MAX_CHANNEL_ID = -1000000000000
 pyrogram.utils.MIN_CHAT_ID = -999999999999
@@ -83,7 +83,7 @@ Chat Guidelines:
 
     try:
         response = xai_client.chat.completions.create(
-            model="grok-2",  # Sahi aur updated Grok model
+            model="grok-beta",  # <--- Yahan grok-beta kar diya hai jo xAI ka standard model hai
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Friend ({sender_name}) says: \"{user_text}\"\nYour Hinglish reply:"}
