@@ -6,23 +6,45 @@ import urllib.request
 import urllib.error
 import pyrogram.client
 import pyrogram.utils
-from pyrogram.raw.types import InputPeerEmpty
+import pyrogram.raw.types.updates as raw_updates
+import pyrogram.raw.functions.updates as raw_update_funcs
+from pyrogram.errors import ChannelInvalid, ChannelPrivate, PeerIdInvalid, RPCError
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# 1. CRITICAL ENGINE PATCH: Safe Resolve Peer (Zero DM Freeze)
-orig_resolve_peer = pyrogram.client.Client.resolve_peer
+# 1. CRITICAL ENGINE PATCH: Fix CHANNEL_INVALID & PEER_ID_INVALID Crash
+orig_invoke = pyrogram.client.Client.invoke
 
-async def safe_resolve_peer(self, peer_id):
+async def bulletproof_invoke(self, query, *args, **kwargs):
     try:
-        return await orig_resolve_peer(self, peer_id)
+        return await orig_invoke(self, query, *args, **kwargs)
+    except (ChannelInvalid, ChannelPrivate, PeerIdInvalid):
+        # Corrupt channel updates ko empty response dekar safe exit karega
+        if isinstance(query, raw_update_funcs.GetChannelDifference):
+            pts_val = getattr(query, "pts", 0)
+            return raw_updates.ChannelDifferenceEmpty(flags=0, final=True, pts=pts_val, timeout=0)
+        return None
+    except RPCError as e:
+        if "CHANNEL_INVALID" in str(e) or "PEER_ID_INVALID" in str(e):
+            if isinstance(query, raw_update_funcs.GetChannelDifference):
+                pts_val = getattr(query, "pts", 0)
+                return raw_updates.ChannelDifferenceEmpty(flags=0, final=True, pts=pts_val, timeout=0)
+            return None
+        raise e
+
+pyrogram.client.Client.invoke = bulletproof_invoke
+
+orig_handle_updates = pyrogram.client.Client.handle_updates
+
+async def safe_handle_updates(self, updates):
+    try:
+        await orig_handle_updates(self, updates)
     except Exception:
-        # Invalid background channels will safely skip without blocking DMs
-        return InputPeerEmpty()
+        return
 
-pyrogram.client.Client.resolve_peer = safe_resolve_peer
+pyrogram.client.Client.handle_updates = safe_handle_updates
 
-# 64-bit Telegram IDs Patch
+# 64-bit Channel IDs Patch
 def patched_get_peer_type(peer_id: int) -> str:
     if peer_id < 0:
         if str(peer_id).startswith("-100"):
@@ -53,14 +75,13 @@ ACTIVE_MODELS = [
     "gemini-1.5-flash"
 ]
 
-# Fast Dynamic AI Generator
 def fetch_gemini_reply(user_text: str, sender_name: str) -> str:
     prompt_text = (
         f"You are a young, friendly Indian friend chatting casually on Telegram in natural Hinglish.\n"
         f"Guidelines:\n"
-        f"1. Reply in everyday casual Hinglish (Hindi written in English alphabet).\n"
+        f"1. Reply strictly in everyday casual Hinglish (Hindi written in English alphabet).\n"
         f"2. Understand chat slang & short words (e.g. 'gf h teri', 'kidar hoo', 'kkrh', 'kaisa h', 'hi', 'heyy', 'yooo', 'oye', 'gi').\n"
-        f"3. Keep it to 1-2 short sentences like a real human typing.\n"
+        f"3. Keep it strictly 1 short sentence like a real mobile user typing.\n"
         f"4. Never say you are an AI or bot.\n"
         f"5. Only share this link if user asks for group/channel/link: {GROUP_LINK}\n\n"
         f"Friend ({sender_name}) sent: \"{user_text}\"\n"
@@ -85,10 +106,10 @@ def fetch_gemini_reply(user_text: str, sender_name: str) -> str:
         except Exception:
             continue
 
-    # Instant Contextual Fallbacks
+    # Fast Smart Fallback
     low = user_text.lower().strip()
     if any(k in low for k in ["kkrh", "kya kr", "kya kar"]):
-        return "Kuch nahi bhai, bas phone chala raha hu. Tu bata?"
+        return "Kuch nahi bhai, bas baitha hu. Tu bata?"
     elif any(k in low for k in ["kidar", "kahan"]):
         return "Ghar pe hi hu bhai, bol kya scene?"
     elif any(k in low for k in ["gf", "bandi"]):
@@ -107,8 +128,8 @@ app = Client(
 
 ACCOUNT_STICKERS = []
 
-# Direct Clean Message Handlers
-@app.on_message(~filters.me & ~filters.bot)
+# Unified Fast Message Dispatcher
+@app.on_message(filters.incoming & ~filters.me)
 async def incoming_dispatcher(client: Client, message: Message):
     try:
         sender = message.from_user.first_name if message.from_user else "Dost"
@@ -127,7 +148,7 @@ async def incoming_dispatcher(client: Client, message: Message):
             except Exception:
                 pass
 
-            await asyncio.sleep(random.uniform(1.0, 1.6))
+            await asyncio.sleep(random.uniform(1.0, 1.5))
 
             if ACCOUNT_STICKERS:
                 chosen = random.choice(ACCOUNT_STICKERS)
@@ -160,7 +181,7 @@ async def incoming_dispatcher(client: Client, message: Message):
 
 async def main():
     await app.start()
-    logging.info("🚀 AI Userbot is LIVE & 100% Active 24/7!")
+    logging.info("🚀 AI Userbot is LIVE & 100% Crash-Proof 24/7!")
     await idle()
     await app.stop()
 
