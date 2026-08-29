@@ -15,10 +15,11 @@ genai.configure(api_key=GEMINI_API_KEY)
 
 def connect_best_model():
     priority_models = [
+        "gemini-2.5-flash",
+        "gemini-flash-latest",
+        "gemini-1.5-flash",
         "gemini-3.6-flash",
-        "gemini-3.7-flash",
-        "gemini-3.5-flash",
-        "gemini-flash-latest"
+        "gemini-3.7-flash"
     ]
     try:
         all_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
@@ -27,24 +28,24 @@ def connect_best_model():
                 if target in full_name:
                     try:
                         m = genai.GenerativeModel(full_name)
-                        m.generate_content("hi")
+                        m.generate_content("test")
                         logging.info(f"🎯 AI Model Connected: {full_name}")
                         return m
                     except Exception:
                         continue
     except Exception as e:
-        logging.error(f"Model error: {e}")
-    return genai.GenerativeModel("gemini-3.6-flash")
+        logging.error(f"Model select error: {e}")
+    return genai.GenerativeModel("gemini-1.5-flash")
 
 active_ai = connect_best_model()
 
-# 2. Dynamic AI Hinglish Generator
+# 2. Dynamic AI Reply Generator
 def get_ai_reply(user_text: str, sender_name: str) -> str:
-    prompt = f"""You are a cool Indian friend chatting casually on Telegram in natural Hinglish.
+    prompt = f"""You are a cool, real Indian friend chatting casually on Telegram in natural Hinglish.
 
 Guidelines:
 1. Speak in natural everyday casual Hinglish (short, friendly, real person tone).
-2. Understand chat short-forms (e.g. 'gf h teri', 'kidar gya', 'kkrh', 'kaisa h', 'thik hb', 'hi', 'oye').
+2. Understand slang/short-words (e.g. 'gf h teri', 'kidar gya', 'hu', 'kkrh', 'kaisa h', 'thik hb', 'hi', 'oye', 'hhh').
 3. Keep answers to 1 short line.
 4. NEVER repeat canned lines.
 5. NEVER mention being an AI or bot.
@@ -60,7 +61,7 @@ Your Hinglish reply:"""
     except Exception as e:
         logging.error(f"AI response error: {e}")
 
-    return "Haan bhai, sun raha hu bol!"
+    return "Haan bhai, bolo sun raha hu!"
 
 # 3. Pyrogram Client
 app = Client(
@@ -72,7 +73,6 @@ app = Client(
 
 ACCOUNT_STICKERS = []
 
-# Account ke Installed Stickers Load Karne Ka Accurate Tarika
 async def sync_account_stickers():
     global ACCOUNT_STICKERS
     ACCOUNT_STICKERS.clear()
@@ -81,12 +81,7 @@ async def sync_account_stickers():
         all_sets = await app.invoke(GetAllStickers(hash=0))
         if hasattr(all_sets, "sets"):
             for item in all_sets.sets:
-                short_name = None
-                if hasattr(item, "set") and hasattr(item.set, "short_name"):
-                    short_name = item.set.short_name
-                elif hasattr(item, "short_name"):
-                    short_name = item.short_name
-
+                short_name = getattr(item.set, "short_name", None) if hasattr(item, "set") else getattr(item, "short_name", None)
                 if short_name:
                     try:
                         st_set = await app.get_sticker_set(short_name)
@@ -97,7 +92,6 @@ async def sync_account_stickers():
     except Exception as e:
         logging.warning(f"Account stickers load note: {e}")
 
-    # Agar account me 0 stickers mile toh backup packs load karega
     if not ACCOUNT_STICKERS:
         for backup_pack in ["AnimatedDog", "HotCherry", "Animals", "Memes"]:
             try:
@@ -107,18 +101,21 @@ async def sync_account_stickers():
             except Exception:
                 continue
 
-    logging.info(f"🎨 Aapki Telegram ID ke Total {len(ACCOUNT_STICKERS)} Stickers load ho chuke hain!")
+    logging.info(f"🎨 Total {len(ACCOUNT_STICKERS)} Stickers loaded in Cache!")
 
-# Text Messages Handler
-@app.on_message(filters.text & ~filters.me & ~filters.bot)
+# Filters: Only Private chats (DMs) & Groups, ignore channels/bots/self
+CHAT_FILTER = (filters.private | filters.group) & filters.incoming & ~filters.me & ~filters.bot
+
+# Text Handler
+@app.on_message(filters.text & CHAT_FILTER)
 async def handle_text(client: Client, message: Message):
-    sender = message.from_user.first_name if message.from_user else "Dost"
-    user_text = message.text
-    chat_id = message.chat.id
-
-    logging.info(f"📩 Naya Text [{sender}]: {user_text}")
-
     try:
+        sender = message.from_user.first_name if message.from_user else "Dost"
+        user_text = message.text
+        chat_id = message.chat.id
+
+        logging.info(f"📩 Naya Text [{sender}]: {user_text}")
+
         try:
             await client.read_chat_history(chat_id)
             await client.send_chat_action(chat_id, ChatAction.TYPING)
@@ -135,18 +132,18 @@ async def handle_text(client: Client, message: Message):
     except Exception as e:
         logging.error(f"Text error: {e}")
 
-# Sticker Messages Handler
-@app.on_message(filters.sticker & ~filters.me & ~filters.bot)
+# Sticker Handler
+@app.on_message(filters.sticker & CHAT_FILTER)
 async def handle_sticker(client: Client, message: Message):
-    sender = message.from_user.first_name if message.from_user else "Dost"
-    chat_id = message.chat.id
-
-    if message.sticker and message.sticker.file_id:
-        ACCOUNT_STICKERS.append(message.sticker.file_id)
-
-    logging.info(f"🎨 Sticker received from [{sender}]")
-
     try:
+        sender = message.from_user.first_name if message.from_user else "Dost"
+        chat_id = message.chat.id
+
+        if message.sticker and message.sticker.file_id:
+            ACCOUNT_STICKERS.append(message.sticker.file_id)
+
+        logging.info(f"🎨 Sticker received from [{sender}]")
+
         try:
             await client.read_chat_history(chat_id)
             await client.send_chat_action(chat_id, ChatAction.CHOOSE_STICKER)
@@ -158,7 +155,7 @@ async def handle_sticker(client: Client, message: Message):
         if ACCOUNT_STICKERS:
             chosen_sticker = random.choice(ACCOUNT_STICKERS)
             await message.reply_sticker(sticker=chosen_sticker, quote=True)
-            logging.info(f"✅ Sent Account Sticker to [{sender}]")
+            logging.info(f"✅ Sent Sticker to [{sender}]")
         else:
             await message.reply_sticker(sticker=message.sticker.file_id, quote=True)
 
@@ -167,9 +164,9 @@ async def handle_sticker(client: Client, message: Message):
 
 async def main():
     await app.start()
-    logging.info("⏳ Account Stickers sync ho rahe hain...")
+    logging.info("⏳ Dialogs aur Peers sync ho rahe hain...")
     try:
-        async for _ in app.get_dialogs(limit=25):
+        async for _ in app.get_dialogs():
             pass
     except Exception:
         pass
