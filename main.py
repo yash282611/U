@@ -1,7 +1,12 @@
 import pyrogram.utils
 import pyrogram.client
+import pyrogram.methods.advanced.resolve_peer
+import pyrogram.raw.types.updates as raw_updates
+import pyrogram.raw.functions.updates as raw_update_funcs
+from pyrogram.raw.types import InputPeerChannel, InputPeerChat, InputPeerUser, InputPeerEmpty
+from pyrogram.errors import ChannelInvalid, ChannelPrivate, PeerIdInvalid, RPCError
 
-# 1. 64-bit Telegram IDs & Channel Crash Bypass
+# 1. ROOT LEVEL FIX: 64-Bit Telegram Channel IDs & Safe Resolver
 pyrogram.utils.MIN_CHANNEL_ID = -1009999999999999
 pyrogram.utils.MAX_CHANNEL_ID = -1000000000000
 pyrogram.utils.MIN_CHAT_ID = -999999999999
@@ -10,9 +15,9 @@ pyrogram.utils.MIN_USER_ID = 0
 pyrogram.utils.MAX_USER_ID = 999999999999999
 
 def patched_get_peer_type(peer_id: int) -> str:
-    if str(peer_id).startswith("-100"):
-        return "channel"
-    elif peer_id < 0:
+    if peer_id < 0:
+        if str(peer_id).startswith("-100"):
+            return "channel"
         return "chat"
     return "user"
 
@@ -24,16 +29,40 @@ def patched_get_channel_id(peer_id: int) -> int:
 
 pyrogram.utils.get_peer_type = patched_get_peer_type
 pyrogram.utils.get_channel_id = patched_get_channel_id
+pyrogram.methods.advanced.resolve_peer.utils.get_peer_type = patched_get_peer_type
+pyrogram.methods.advanced.resolve_peer.utils.get_channel_id = patched_get_channel_id
 
-_orig_handle_updates = pyrogram.client.Client.handle_updates
+orig_resolve_peer = pyrogram.client.Client.resolve_peer
 
-async def safe_handle_updates(self, updates):
+async def safe_resolve_peer(self, peer_id):
     try:
-        await _orig_handle_updates(self, updates)
+        return await orig_resolve_peer(self, peer_id)
     except Exception:
-        pass
+        if isinstance(peer_id, int):
+            if str(peer_id).startswith("-100"):
+                return InputPeerChannel(channel_id=int(str(peer_id)[4:]), access_hash=0)
+            elif peer_id < 0:
+                return InputPeerChat(chat_id=-peer_id)
+            else:
+                return InputPeerUser(user_id=peer_id, access_hash=0)
+        return InputPeerEmpty()
 
-pyrogram.client.Client.handle_updates = safe_handle_updates
+pyrogram.client.Client.resolve_peer = safe_resolve_peer
+
+orig_invoke = pyrogram.client.Client.invoke
+
+async def safe_invoke(self, query, *args, **kwargs):
+    try:
+        return await orig_invoke(self, query, *args, **kwargs)
+    except Exception as e:
+        if isinstance(query, raw_update_funcs.GetChannelDifference):
+            pts_val = getattr(query, "pts", 0)
+            return raw_updates.ChannelDifferenceEmpty(pts=pts_val, final=True)
+        if isinstance(e, (ChannelInvalid, ChannelPrivate, PeerIdInvalid)):
+            return None
+        raise e
+
+pyrogram.client.Client.invoke = safe_invoke
 
 # 2. Main Bot Setup
 import asyncio
@@ -53,37 +82,41 @@ logging.basicConfig(
 )
 
 API_KEY = str(GEMINI_API_KEY).strip()
-MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+WORKING_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-flash-latest"
+]
 
-# Direct AI Reply Generator (DM + Group Friendly)
+# Fast Dynamic AI Generator
 def generate_ai_reply(user_text: str, sender_name: str, is_group: bool) -> str:
-    chat_context = "in a Telegram Group chat" if is_group else "in a 1-on-1 private DM"
+    chat_context = "in a Telegram Group chat" if is_group else "in a 1-on-1 private chat"
 
     prompt_text = (
         f"You are a young, cool Indian guy chatting casually {chat_context}.\n"
         f"Rules for replying:\n"
         f"1. Reply strictly in 100% natural, casual everyday conversational Hinglish (Hindi written in English alphabets).\n"
         f"2. Directly answer what the friend said like a real human:\n"
-        f"   - If greetings ('hi', 'hello', 'oye', 'yoo', 'heyy'): friendly casual reply (e.g. 'aur bhai kya chal raha hai?', 'haan bhai bol kya haal?')\n"
+        f"   - If greetings ('hi', 'hello', 'oye', 'yoo', 'heyy', 'hu', 'uhii', 'hpo'): friendly casual reply (e.g. 'aur bhai kya chal raha hai?', 'haan bhai bol kya haal?')\n"
         f"   - If food ('khana khya', 'lunch', 'dinner'): natural reply (e.g. 'haan bhai bas abhi khaya, tune khaya kya?', 'abhi nahi yaar thodi der me khaunga')\n"
-        f"   - If activity ('kkrh', 'kya kar raha hai'): natural reply (e.g. 'kuch nahi bhai bas phone chala raha hu, tu bata kya scene?')\n"
+        f"   - If activity ('kkrh', 'krh', 'kya kar raha hai'): natural reply (e.g. 'kuch nahi bhai bas phone chala raha hu, tu bata kya scene?')\n"
         f"   - If location ('kidhar hai', 'kahan ho'): natural reply (e.g. 'ghar pe hi hu bhai, bol kya plan hai?')\n"
-        f"   - Any jokes, slang or banter: reply with natural, fun friend-like banter.\n"
+        f"   - Any jokes, gibberish or chat: reply with natural, fun friend-like banter.\n"
         f"3. Strictly 1 short, crisp sentence (never write long paragraphs).\n"
-        f"4. Never repeat the exact same response repeatedly.\n"
-        f"5. Never say you are an AI or bot.\n"
-        f"6. Only share this link if user specifically asks for group/link: {GROUP_LINK}\n\n"
+        f"4. Never say you are an AI or bot.\n"
+        f"5. Only share this link if user specifically asks for group/link: {GROUP_LINK}\n\n"
         f"Friend ({sender_name}) said: \"{user_text}\"\n"
         f"Your quick Hinglish reply:"
     )
 
     payload = {
-        "contents": [{"role": "user", "parts": [{"text": prompt_text}]}],
+        "contents": [{"parts": [{"text": prompt_text}]}],
         "generationConfig": {"temperature": 0.9, "maxOutputTokens": 60}
     }
     data_bytes = json.dumps(payload).encode("utf-8")
 
-    for model in MODELS:
+    for model in WORKING_MODELS:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={API_KEY}"
         req = urllib.request.Request(url, data=data_bytes, headers={"Content-Type": "application/json"})
         try:
@@ -95,7 +128,7 @@ def generate_ai_reply(user_text: str, sender_name: str, is_group: bool) -> str:
         except Exception:
             continue
 
-    # Multi-Variant Fallbacks (Zero Repetition)
+    # Fallbacks agar internet me delay ho
     low = user_text.lower().strip()
     if any(k in low for k in ["khana", "lunch", "dinner"]):
         return random.choice([
@@ -103,7 +136,7 @@ def generate_ai_reply(user_text: str, sender_name: str, is_group: bool) -> str:
             "Haan yaar ho gaya lunch, tu bata tera hua?",
             "Abhi nahi bhai, thodi der me khaunga. Tu bata?"
         ])
-    elif any(k in low for k in ["kkrh", "kya kr", "kya kar"]):
+    elif any(k in low for k in ["kkrh", "krh", "kya kr", "kya kar"]):
         return random.choice([
             "Kuch nahi bhai, bas phone chala raha hu. Tu bata kya scene?",
             "Bas chill kar raha hu yaar, tu bata kya chal raha?",
@@ -115,9 +148,7 @@ def generate_ai_reply(user_text: str, sender_name: str, is_group: bool) -> str:
             "Room pe hi hu yaar, bol kya baat?",
             "Ghar pe hi hu, bol kuch kaam tha kya?"
         ])
-    elif any(k in low for k in ["gf", "bandi"]):
-        return "Nahi bhai, apan single hi bindass hain!"
-    elif any(k in low for k in ["hi", "hello", "oye", "yoo", "heyy", "mieew"]):
+    elif any(k in low for k in ["hi", "hello", "oye", "yoo", "heyy", "hu", "uhii", "hpo"]):
         return random.choice([
             "Aur bhai, kya haal chaal!",
             "Haan bhai bol, kya chal raha hai?",
@@ -142,12 +173,10 @@ app = Client(
 STICKER_VAULT = []
 
 # Unified Handler for DM + Groups
-@app.on_message(~filters.me)
+@app.on_message(filters.incoming & ~filters.me)
 async def message_dispatcher(client: Client, message: Message):
     try:
         if message.from_user and message.from_user.is_bot:
-            return
-        if message.outgoing:
             return
 
         sender = message.from_user.first_name if message.from_user else "Dost"
