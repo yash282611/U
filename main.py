@@ -60,7 +60,7 @@ async def safe_resolve_peer(self, peer_id):
 pyrogram.client.Client.resolve_peer = safe_resolve_peer
 pyrogram.Client.resolve_peer = safe_resolve_peer
 
-# Safe Update Loop Handler (Task termination preventer)
+# Safe Update Loop Handler
 _orig_handle_updates = pyrogram.client.Client.handle_updates
 
 async def safe_handle_updates(self, updates):
@@ -71,7 +71,6 @@ async def safe_handle_updates(self, updates):
 
 pyrogram.client.Client.handle_updates = safe_handle_updates
 pyrogram.Client.handle_updates = safe_handle_updates
-
 
 # 2. Main Bot Setup
 logging.basicConfig(
@@ -121,13 +120,11 @@ def fetch_gemini_reply(user_text: str, sender_name: str, is_group: bool) -> str:
         except Exception:
             continue
 
-    # Fallbacks
     return random.choice([
         "Haan bhai, bol kya chal raha hai?",
         "Sahi hai bhai, tu bata kya scene?",
         "Haan bhai bol, sun raha hu!"
     ])
-
 
 # 3. Telegram Client Setup
 app = Client(
@@ -139,25 +136,18 @@ app = Client(
 
 STICKER_VAULT = []
 
-
-# Universal Clean Message Listener
 @app.on_message()
 async def universal_dispatcher(client: Client, message: Message):
     try:
         if not message:
             return
 
-        # 🛠️ TESTING FEATURE: Agar tum khud ".test" type karoge, toh bot bata dega ki wo zinda hai!
-        if message.outgoing and message.text == ".test":
-            await message.reply_text("✅ Bhai, bot ekdum mast chal raha hai!", quote=True)
+        # 🚨 NAYA RULE: Agar message bot ne khud AI se generate karke bheja hai (🤖 laga hai), toh wapas reply nahi karega
+        if message.text and message.text.startswith("🤖"):
             return
-
-        # Baaki tumhare khud ke bheje hue messages ko ignore karega taaki spam na ho
-        if message.outgoing:
-            return
-
-        # Bots ya khud ko ignore karega
-        if message.from_user and (message.from_user.is_self or message.from_user.is_bot):
+            
+        # Doosre bots ko ignore karega
+        if message.from_user and message.from_user.is_bot:
             return
 
         sender = message.from_user.first_name if message.from_user else "Dost"
@@ -165,7 +155,6 @@ async def universal_dispatcher(client: Client, message: Message):
         is_group = message.chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]
         chat_title = message.chat.title if is_group else sender
 
-        # Instant Double-Tick
         try:
             await client.read_chat_history(chat_id)
         except Exception:
@@ -173,23 +162,18 @@ async def universal_dispatcher(client: Client, message: Message):
 
         # 1. STICKER MESSAGE
         if message.sticker:
+            if message.outgoing: # Tumhare khud ke bheje stickers ko ignore karega loop se bachne ke liye
+                return
             if message.sticker.file_id:
                 STICKER_VAULT.append(message.sticker.file_id)
 
             logging.info(f"🎨 Sticker from [{sender}] in [{chat_title}]")
-
-            try:
-                await client.send_chat_action(chat_id, ChatAction.CHOOSE_STICKER)
-            except Exception:
-                pass
-
             await asyncio.sleep(random.uniform(0.8, 1.4))
             chosen = random.choice(STICKER_VAULT) if STICKER_VAULT else message.sticker.file_id
             await message.reply_sticker(sticker=chosen, quote=True)
-            logging.info(f"✅ Replied Sticker to [{sender}]")
             return
 
-        # 2. TEXT MESSAGE
+        # 2. TEXT MESSAGE (Ab ye TUMHARE bheje hue message par bhi reply karega)
         if message.text:
             user_text = message.text
             logging.info(f"📩 [{chat_title}] {sender}: {user_text}")
@@ -203,19 +187,18 @@ async def universal_dispatcher(client: Client, message: Message):
             reply = await asyncio.to_thread(fetch_gemini_reply, user_text, sender, is_group)
 
             if reply:
-                await message.reply_text(text=reply, quote=True, disable_web_page_preview=True)
+                # 🤖 Emoji laga rahe hain taaki AI khud pe reply karke loop na banaye
+                await message.reply_text(text=f"🤖 {reply}", quote=True, disable_web_page_preview=True)
                 logging.info(f"✅ AI Replied to [{sender}] in [{chat_title}]: {reply}")
 
     except Exception as err:
         logging.error(f"Handler execution error: {err}")
 
-
 async def main():
     await app.start()
-    logging.info("🚀 AI Userbot is LIVE 24/7 for DM + ALL Groups!")
+    logging.info("🚀 AI Userbot is LIVE 24/7! (Now responds to your own texts too!)")
     await idle()
     await app.stop()
-
 
 if __name__ == "__main__":
     asyncio.run(main())
