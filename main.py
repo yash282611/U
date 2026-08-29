@@ -10,11 +10,15 @@ from pyrogram.types import Message
 from pyrogram.enums import ChatAction
 from openai import OpenAI
 from collections import defaultdict
-from config import API_ID, API_HASH, SESSION_STRING, GROUP_LINK
+
+# Config file se sab import kar rahe hain
+from config import API_ID, API_HASH, SESSION_STRING, GROQ_API_KEY, GROUP_LINK
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
+# ==========================================
 # Root Level Fix for Pyrogram Group Peers
+# ==========================================
 pyrogram.utils.MIN_CHANNEL_ID = -1009999999999999
 pyrogram.utils.MAX_CHANNEL_ID = -1000000000000
 pyrogram.utils.MIN_CHAT_ID = -999999999999
@@ -58,11 +62,9 @@ async def safe_handle_updates(self, updates):
         pass
 pyrogram.client.Client.handle_updates = safe_handle_updates
 
-# ==========================================================
-# 🔑 AB YE RAILWAY KE VARIABLE SE SEEDHA KEY UTHAYEGA (Safe)
-# ==========================================================
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-
+# ==========================================
+# Groq API Setup
+# ==========================================
 try:
     groq_client = OpenAI(
         api_key=GROQ_API_KEY,
@@ -70,25 +72,31 @@ try:
     )
     logging.info("🎯 Connected 100% to Groq Cloud API")
 except Exception as e:
-    logging.error(f"Grok connection error: {e}")
+    logging.error(f"Groq connection error: {e}")
 
+# ==========================================
+# Chat History Memory 
+# ==========================================
 chat_histories = defaultdict(list)
 
 def get_ai_reply(chat_id: int, user_text: str, sender_name: str) -> str:
-    system_prompt = f"""You are a real, casual 19-year-old Indian guy chatting with your close friend on Telegram. 
-Reply like an absolute human being, never like an AI or a bot.
+    # Yahan AI ko bilkul insaan banne ki strict warning di gayi hai
+    system_prompt = f"""You are a real 19-year-old Indian guy chatting with your close friend on Telegram. 
+You MUST act exactly like a normal human being. NEVER act like an AI, bot, or assistant.
 
-Rules:
-1. Talk strictly in natural everyday Hinglish (Hindi words written in English alphabet, like "bhai", "sahi hai", "arre", "kya chal rha hai", "haan yaar", "acha").
-2. Read what the user said carefully and reply to that specific thing directly, just like a real human texting back.
-3. Keep it short, casual, and conversational (1 to 2 short lines max).
-4. NEVER repeat the same sentence or sound robotic. Vary your replies completely.
-5. NEVER say you are an AI, bot, or language model. 
-6. If they ask for a group/channel link, share: {GROUP_LINK}"""
+Strict Rules for chatting:
+1. Talk in casual everyday Hinglish (e.g., 'haan bhai', 'kya scene hai', 'kuch nahi yaar', 'tu bata').
+2. Read the context and reply DIRECTLY to what the user just said. 
+   - Example: If user says "khana khaya?", reply like "haan bhai kha liya, tu bata" or "nahi yaar abhi khaunga".
+3. Keep it strictly to 1 short line (max 5-10 words). Real humans don't type long paragraphs.
+4. Don't use perfect grammar or capital letters unnecessarily. Type like a normal lazy teenager (e.g., "hmm", "ok", "kya?").
+5. NEVER repeat the same sentence. Think and give a fresh, natural reply every time.
+6. If they ask for a group or channel link, share: {GROUP_LINK}"""
 
     history = chat_histories[chat_id]
     history.append({"role": "user", "content": f"{sender_name}: {user_text}"})
 
+    # Puraane 10 messages yaad rakhega, usse zyada delete kar dega taaki load na pade
     if len(history) > 10:
         history.pop(0)
 
@@ -98,25 +106,24 @@ Rules:
         response = groq_client.chat.completions.create(
             model="llama3-70b-8192",
             messages=messages,
-            temperature=1.0,
-            max_tokens=60
+            temperature=0.9, # 0.9 matlab ekdum natural aur creative sochega
+            max_tokens=50
         )
         if response.choices:
             reply_text = response.choices[0].message.content.strip()
+            
+            # Bot ka diya hua jawab bhi history me save karenge
             history.append({"role": "assistant", "content": reply_text})
             return reply_text
     except Exception as e:
         logging.error(f"Groq response generation error: {e}")
 
-    fallbacks = [
-        "haan bhai sun rha hu", 
-        "kya bol rha hai yaar", 
-        "arre bata na", 
-        "sahi hai, aur bata", 
-        "kya scene hai fir"
-    ]
-    return random.choice(fallbacks)
+    # Agar kabhi Groq ki API fail hui ya key galat hui toh ye backup line aayegi
+    return "kya bol rha h yaar samajh nhi aara"
 
+# ==========================================
+# Pyrogram Client Start
+# ==========================================
 app = Client(
     name="group_human_userbot",
     api_id=API_ID,
@@ -136,6 +143,7 @@ def on_text_message(client: Client, message: Message):
 
         logging.info(f"📩 Naya Text [{sender}]: {user_text}")
 
+        # Typing action dikhane ke liye
         try:
             if not message.outgoing:
                 client.read_chat_history(chat_id)
@@ -143,6 +151,7 @@ def on_text_message(client: Client, message: Message):
         except Exception:
             pass
 
+        # Ek normal insaan ki tarah type karne me thoda time (1.5 se 3 seconds)
         time.sleep(random.uniform(1.5, 3.0))
 
         reply = get_ai_reply(chat_id, user_text, sender)
