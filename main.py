@@ -103,8 +103,11 @@ Strict Rules for chatting:
     messages = [{"role": "system", "content": system_prompt}] + list(history)
 
     try:
+        # ====================================================
+        # YAHAN NAYA MODEL UPDATE KIYA HAI JO KABHI BAND NAHI HOGA
+        # ====================================================
         response = groq_client.chat.completions.create(
-            model="llama3-70b-8192",
+            model="llama-3.1-70b-versatile",
             messages=messages,
             temperature=0.9, # 0.9 matlab ekdum natural aur creative sochega
             max_tokens=50
@@ -118,7 +121,7 @@ Strict Rules for chatting:
     except Exception as e:
         logging.error(f"Groq response generation error: {e}")
 
-    # Agar kabhi Groq ki API fail hui ya key galat hui toh ye backup line aayegi
+    # Agar kabhi Groq ki API fail hui toh ye backup line aayegi
     return "kya bol rha h yaar samajh nhi aara"
 
 # ==========================================
@@ -163,5 +166,5 @@ def on_text_message(client: Client, message: Message):
         logging.error(f"Text error: {e}")
 
 if __name__ == "__main__":
-    logging.info("🚀 100% Real Human AI Userbot is Starting...")
+    logging.info("🚀 100% Real Human AI Userbot is Starting with New Model...")
     app.run()
