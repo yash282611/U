@@ -57,10 +57,10 @@ async def safe_handle_updates(self, updates):
         pass
 pyrogram.client.Client.handle_updates = safe_handle_updates
 
-# ==========================================
-# 🔑 APNI GROQ API KEY YAHAN DIRECT DAAL DO
-# ==========================================
-DIRECT_GROQ_KEY = "gsk_yah_apni_asli_groq_key_paste_kar_dena"
+# ==========================================================
+# 🔑 APNI ASLI GROQ API KEY YAHAN QUOTES KE ANDAR DAAL BHAai
+# ==========================================================
+DIRECT_GROQ_KEY = ("GROQ_API_KEY")
 
 try:
     groq_client = OpenAI(
@@ -71,19 +71,19 @@ try:
 except Exception as e:
     logging.error(f"Grok connection error: {e}")
 
-# Chat History Memory Dictionary
 chat_histories = defaultdict(list)
 
 def get_ai_reply(chat_id: int, user_text: str, sender_name: str) -> str:
-    system_prompt = f"""You are a real close Indian friend chatting casually on Telegram. 
-Talk like an absolute human, not a robot or AI assistant.
+    system_prompt = f"""You are a real, casual 19-year-old Indian guy chatting with your close friend on Telegram. 
+Reply like an absolute human being, never like an AI or a bot.
 
 Rules:
-1. Use natural Indian slang and everyday Hinglish (Hindi words in English letters, like "bhai", "sahi hai", "arre", "dekh", "kya scene hai", "haan yaar").
-2. Look at the chat history and reply naturally to keep the conversation flowing like real humans do. 
-3. Keep it conversational, casual, and don't sound like a customer care bot.
-4. NEVER say you are an AI, bot, or language model. Act completely human.
-5. If they ask for a group/channel link, share: {GROUP_LINK}"""
+1. Talk strictly in natural everyday Hinglish (Hindi words written in English alphabet, like "bhai", "sahi hai", "arre", "kya chal rha hai", "haan yaar", "acha").
+2. Read what the user said carefully and reply to that specific thing directly, just like a real human texting back.
+3. Keep it short, casual, and conversational (1 to 2 short lines max).
+4. NEVER repeat the same sentence or sound robotic. Vary your replies completely.
+5. NEVER say you are an AI, bot, or language model. 
+6. If they ask for a group/channel link, share: {GROUP_LINK}"""
 
     history = chat_histories[chat_id]
     history.append({"role": "user", "content": f"{sender_name}: {user_text}"})
@@ -97,7 +97,7 @@ Rules:
         response = groq_client.chat.completions.create(
             model="llama3-70b-8192",
             messages=messages,
-            temperature=0.9,
+            temperature=1.0,
             max_tokens=60
         )
         if response.choices:
@@ -107,16 +107,16 @@ Rules:
     except Exception as e:
         logging.error(f"Groq response generation error: {e}")
     
-    return "haan bhai, bol kya chal rha hai"
+    # Random fallback taaki agar API error aaye toh alag alag line jaye
+    fallbacks = [
+        "haan bhai sun rha hu", 
+        "kya bol rha hai yaar", 
+        "arre bata na", 
+        "sahi hai, aur bata", 
+        "kya scene hai fir"
+    ]
+    return random.choice(fallbacks)
 
-STICKERS = [
-    "CAACAgIAAxkBAAEK1eBlvK9-h3V1Lh6DkgABw1b4a3kAAj0AA8G2wQgYjGfXW3wFHgQ",
-    "CAACAgIAAxkBAAEK1eJlvK-KzP6b2hM4g9_ySgABG3kAAl0AA8G2wQjK_HwXlB0BHgQ",
-    "CAACAgIAAxkBAAEK1eRlvK-W6Z4zQ4YxKjZtL-UAAkcAA8G2wQirF03mGgW5HgQ",
-    "CAACAgIAAxkBAAEK1eZlvK-f7uO0n8cQ5f7L3OQAAiEAA8G2wQjX_d8uT4QHHgQ"
-]
-
-# Pyrogram Client Setup (Fixed Session String Format)
 app = Client(
     name="group_human_userbot",
     api_id=API_ID,
@@ -143,16 +143,17 @@ def on_text_message(client: Client, message: Message):
         except Exception:
             pass
 
+        # Insaan ki tarah sochne aur type karne ka real delay
         time.sleep(random.uniform(1.5, 3.0))
 
         reply = get_ai_reply(chat_id, user_text, sender)
         if reply:
             message.reply_text(text=reply, quote=True, disable_web_page_preview=True)
-            logging.info(f"✅ Contextual Human-like Replied to [{sender}]: {reply}")
+            logging.info(f"✅ Human Replied to [{sender}]: {reply}")
 
     except Exception as e:
         logging.error(f"Text error: {e}")
 
 if __name__ == "__main__":
-    logging.info("🚀 100% Memory-Based Human AI Userbot is Starting...")
+    logging.info("🚀 100% Real Human AI Userbot is Starting...")
     app.run()
