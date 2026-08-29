@@ -71,7 +71,7 @@ try:
 except Exception as e:
     logging.error(f"Grok connection error: {e}")
 
-# Har chat ki history yaad rakhne ke liye memory dictionary (Max 10 messages yaad rakhega)
+# Chat History Memory Dictionary
 chat_histories = defaultdict(list)
 
 def get_ai_reply(chat_id: int, user_text: str, sender_name: str) -> str:
@@ -85,7 +85,6 @@ Rules:
 4. NEVER say you are an AI, bot, or language model. Act completely human.
 5. If they ask for a group/channel link, share: {GROUP_LINK}"""
 
-    # History manage karo (last 10 messages store rahenge)
     history = chat_histories[chat_id]
     history.append({"role": "user", "content": f"{sender_name}: {user_text}"})
     
@@ -103,7 +102,6 @@ Rules:
         )
         if response.choices:
             reply_text = response.choices[0].message.content.strip()
-            # Bot ka jawab bhi history mein daal do taaki agni baar context yaad rahe
             history.append({"role": "assistant", "content": reply_text})
             return reply_text
     except Exception as e:
@@ -118,11 +116,12 @@ STICKERS = [
     "CAACAgIAAxkBAAEK1eZlvK-f7uO0n8cQ5f7L3OQAAiEAA8G2wQjX_d8uT4QHHgQ"
 ]
 
+# Pyrogram Client Setup (Fixed Session String Format)
 app = Client(
-    "group_human_userbot",
+    name="group_human_userbot",
     api_id=API_ID,
     api_hash=API_HASH,
-    SESSION_STRING=SESSION_STRING
+    session_string=SESSION_STRING
 )
 
 @app.on_message(filters.text & ~filters.bot)
@@ -144,7 +143,6 @@ def on_text_message(client: Client, message: Message):
         except Exception:
             pass
 
-        # Insaan ki tarah 1.5 se 3 second ka real typing delay
         time.sleep(random.uniform(1.5, 3.0))
 
         reply = get_ai_reply(chat_id, user_text, sender)
