@@ -90,14 +90,17 @@ def fetch_gemini_reply(user_text: str, sender_name: str, is_group: bool) -> str:
 
 app = Client("userbot", api_id=int(API_ID), api_hash=str(API_HASH), session_string=str(SESSION_STRING))
 
-# 3. Message Handler
+# 3. Message Handler (अब यह तुम्हारे खुद के मैसेज पर भी रिप्लाई करेगा!)
 @app.on_message(filters.text & ~filters.bot)
 async def universal_dispatcher(client: Client, message: Message):
     try:
-        # अगर तुम खुद उस +84 वाले अकाउंट से मैसेज करोगे, तो बोट इग्नोर करेगा (ताकि वो खुद से बात ना करे)
-        if message.outgoing:
-            if message.text == ".test":
-                await message.reply_text("✅ बोट +84 वाले अकाउंट पर एकदम मस्त चल रहा है!", quote=True)
+        # अगर मैसेज के शुरू में 🤖 है, तो बोट इग्नोर करेगा (ताकि वो खुद को ही रिप्लाई करके इनफिनिट लूप ना बनाये)
+        if message.text.startswith("🤖"):
+            return
+
+        # टेस्ट कमांड
+        if message.text == ".test":
+            await message.reply_text("✅ बोट एकदम मस्त चल रहा है!", quote=True)
             return
 
         sender = message.from_user.first_name if message.from_user else "Dost"
@@ -114,7 +117,8 @@ async def universal_dispatcher(client: Client, message: Message):
         reply = await asyncio.to_thread(fetch_gemini_reply, message.text, sender, is_group)
 
         if reply:
-            await message.reply_text(text=reply, quote=True, disable_web_page_preview=True)
+            # AI के रिप्लाई के आगे 🤖 लगा रहे हैं
+            await message.reply_text(text=f"🤖 {reply}", quote=True, disable_web_page_preview=True)
             logging.info(f"AI Replied to {sender}: {reply}")
 
     except Exception as e:
@@ -122,7 +126,7 @@ async def universal_dispatcher(client: Client, message: Message):
 
 async def main():
     await app.start()
-    logging.info("🚀 Userbot is LIVE!")
+    logging.info("🚀 Userbot is LIVE! (Now replies to your messages too)")
     await idle()
     await app.stop()
 
