@@ -81,6 +81,7 @@ except Exception as e:
 chat_histories = defaultdict(list)
 
 def get_ai_reply(chat_id: int, user_text: str, sender_name: str) -> str:
+    # SYSTEM PROMPT MEIN STRICT WARNING DAAL DI HAI
     system_prompt = f"""You are a real 19-year-old Indian guy chatting with your close friend on Telegram. 
 You MUST act exactly like a normal human being. NEVER act like an AI, bot, or assistant.
 
@@ -91,7 +92,9 @@ Strict Rules for chatting:
 3. Keep it strictly to 1 short line (max 5-10 words). Real humans don't type long paragraphs.
 4. Don't use perfect grammar or capital letters unnecessarily. Type like a normal lazy teenager (e.g., "hmm", "ok", "kya?").
 5. NEVER repeat the same sentence. Think and give a fresh, natural reply every time.
-6. If they ask for a group or channel link, share: {GROUP_LINK}"""
+6. If they ask for a group or channel link, share: {GROUP_LINK}
+
+CRITICAL INSTRUCTION: YOU MUST ONLY OUTPUT THE FINAL CHAT MESSAGE. DO NOT OUTPUT YOUR THINKING PROCESS, ANALYSIS, RULES, OR ANY NUMBERED LISTS. JUST SPEAK DIRECTLY AS THE PERSON."""
 
     history = chat_histories[chat_id]
     history.append({"role": "user", "content": f"{sender_name}: {user_text}"})
@@ -102,44 +105,36 @@ Strict Rules for chatting:
     messages = [{"role": "system", "content": system_prompt}] + list(history)
 
     try:
-        available_models_data = groq_client.models.list().data
-        
-        # Audio (whisper) aur Thinking (deepseek/r1) models ko filter kar diya
-        text_models = [
-            m.id for m in available_models_data 
-            if "whisper" not in m.id.lower() 
-            and "deepseek" not in m.id.lower() 
-            and "r1" not in m.id.lower()
+        # YAHAN SIRF SAFE MODELS KI LIST HAI JO KABHI THINKING LEAK NAHI KARTE
+        safe_models = [
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant",
+            "llama3-8b-8192",
+            "gemma2-9b-it"
         ]
-        
-        # Normal conversational models ko priority do
-        priority = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "gemma2-9b-it", "llama3-8b-8192"]
-        text_models = sorted(text_models, key=lambda x: priority.index(x) if x in priority else 999)
-
-        if not text_models:
-            return "Bhai teri API key me ek bhi model allow nahi hai!"
 
         last_error = ""
-        for model_name in text_models:
+        for model_name in safe_models:
             try:
                 response = groq_client.chat.completions.create(
                     model=model_name, 
                     messages=messages,
-                    temperature=0.9, 
+                    temperature=0.8, 
                     max_tokens=50
                 )
                 if response.choices:
                     reply_text = response.choices[0].message.content.strip()
                     
-                    # FILTER 1: Remove <think>...</think> blocks completely
+                    # Agar galti se fir bhi numbers (1., 2.) bheje, toh usko reject karke saaf kar dega
                     reply_text = re.sub(r'<think>.*?</think>', '', reply_text, flags=re.DOTALL).strip()
-                    
-                    # FILTER 2: Agar model apna process bataye toh usko delete kar do
-                    if "thinking process:" in reply_text.lower() or "here's a thinking" in reply_text.lower():
-                        parts = reply_text.split('\n\n')
-                        reply_text = parts[-1].strip() # Sirf last line bhejenge jo asli reply hoga
+                    if "Analyze User Input" in reply_text or "Satisfy Rule" in reply_text:
+                        lines = reply_text.split('\n')
+                        # Asli reply hamesha sabse neeche hota hai in errors mein
+                        reply_text = lines[-1].replace("- Bot:", "").replace("- User:", "").strip()
 
-                    # Pura clean hone ke baad history me save karo
+                    # Quotes (") agar aa jayein toh hata do
+                    reply_text = reply_text.replace('"', '').replace("'", "")
+
                     if reply_text:
                         history.append({"role": "assistant", "content": reply_text})
                         return reply_text
@@ -147,11 +142,11 @@ Strict Rules for chatting:
                 last_error = str(e)
                 continue
                 
-        return f"Bhai saare available models fail ho gaye: {last_error}"
+        return f"Bhai saare safe models fail ho gaye: {last_error}"
         
     except Exception as e:
         logging.error(f"Groq API error: {e}")
-        return f"Bhai Groq ka server hi list nahi de raha: {e}"
+        return f"Bhai Groq error: {e}"
 
 # ==========================================
 # Pyrogram Client Start
@@ -193,5 +188,5 @@ def on_text_message(client: Client, message: Message):
         logging.error(f"Text error: {e}")
 
 if __name__ == "__main__":
-    logging.info("🚀 100% Real Human AI Userbot is Starting with Clean Output Filter...")
+    logging.info("🚀 100% Real Human AI Userbot is Starting with STRIXT Brain...")
     app.run()
