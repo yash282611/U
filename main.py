@@ -2,6 +2,7 @@ import time
 import random
 import logging
 import os
+import re
 import pyrogram.utils
 import pyrogram.client
 from pyrogram.raw.types import InputPeerChannel, InputPeerChat, InputPeerUser, InputPeerEmpty
@@ -101,19 +102,24 @@ Strict Rules for chatting:
     messages = [{"role": "system", "content": system_prompt}] + list(history)
 
     try:
-        # ====================================================
-        # BRAHMASTRA: Groq se khud pucho kaunse models available hain
-        # ====================================================
         available_models_data = groq_client.models.list().data
         
-        # Audio/Whisper wale model hata kar sirf Text wale model filter karo
-        text_models = [m.id for m in available_models_data if "whisper" not in m.id.lower()]
+        # Audio (whisper) aur Thinking (deepseek/r1) models ko filter kar diya
+        text_models = [
+            m.id for m in available_models_data 
+            if "whisper" not in m.id.lower() 
+            and "deepseek" not in m.id.lower() 
+            and "r1" not in m.id.lower()
+        ]
         
+        # Normal conversational models ko priority do
+        priority = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "gemma2-9b-it", "llama3-8b-8192"]
+        text_models = sorted(text_models, key=lambda x: priority.index(x) if x in priority else 999)
+
         if not text_models:
             return "Bhai teri API key me ek bhi model allow nahi hai!"
 
         last_error = ""
-        # Jo bhi model allowed hain, unhe ek-ek karke try karega jab tak chal na jaye
         for model_name in text_models:
             try:
                 response = groq_client.chat.completions.create(
@@ -124,8 +130,19 @@ Strict Rules for chatting:
                 )
                 if response.choices:
                     reply_text = response.choices[0].message.content.strip()
-                    history.append({"role": "assistant", "content": reply_text})
-                    return reply_text
+                    
+                    # FILTER 1: Remove <think>...</think> blocks completely
+                    reply_text = re.sub(r'<think>.*?</think>', '', reply_text, flags=re.DOTALL).strip()
+                    
+                    # FILTER 2: Agar model apna process bataye toh usko delete kar do
+                    if "thinking process:" in reply_text.lower() or "here's a thinking" in reply_text.lower():
+                        parts = reply_text.split('\n\n')
+                        reply_text = parts[-1].strip() # Sirf last line bhejenge jo asli reply hoga
+
+                    # Pura clean hone ke baad history me save karo
+                    if reply_text:
+                        history.append({"role": "assistant", "content": reply_text})
+                        return reply_text
             except Exception as e:
                 last_error = str(e)
                 continue
@@ -176,5 +193,5 @@ def on_text_message(client: Client, message: Message):
         logging.error(f"Text error: {e}")
 
 if __name__ == "__main__":
-    logging.info("🚀 100% Real Human AI Userbot is Starting with Dynamic Auto-Model...")
+    logging.info("🚀 100% Real Human AI Userbot is Starting with Clean Output Filter...")
     app.run()
