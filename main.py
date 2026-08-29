@@ -87,13 +87,11 @@ You MUST act exactly like a normal human being. NEVER act like an AI, bot, or as
 Strict Rules for chatting:
 1. Talk in casual everyday Hinglish (e.g., 'haan bhai', 'kya scene hai', 'kuch nahi yaar', 'tu bata').
 2. Read the context and reply DIRECTLY to what the user just said. 
-   - Example: If user says "khana khaya?", reply like "haan bhai kha liya, tu bata" or "nahi yaar abhi khaunga".
 3. Keep it strictly to 1 short line (max 5-10 words). Real humans don't type long paragraphs.
-4. Don't use perfect grammar or capital letters unnecessarily. Type like a normal lazy teenager (e.g., "hmm", "ok", "kya?").
-5. NEVER repeat the same sentence. Think and give a fresh, natural reply every time.
-6. If they ask for a group or channel link, share: {GROUP_LINK}
+4. NEVER repeat the same sentence. Think and give a fresh, natural reply every time.
+5. CRITICAL: ONLY output the exact reply text. DO NOT output the speaker's name or any prefixes (Do not write '{sender_name}:' or 'Bot:'). Just give the answer.
 
-CRITICAL: ONLY output your direct reply. NO analysis, NO thinking steps, NO rules, NO quotes, NO 'Bot:' prefix. Just the pure conversational reply."""
+If they ask for a group or channel link, share: {GROUP_LINK}"""
 
     history = chat_histories[chat_id]
     history.append({"role": "user", "content": f"{sender_name}: {user_text}"})
@@ -104,54 +102,71 @@ CRITICAL: ONLY output your direct reply. NO analysis, NO thinking steps, NO rule
     messages = [{"role": "system", "content": system_prompt}] + list(history)
 
     try:
-        # 1. GROQ SE POOCHO KYA ZINDA HAI
-        available_models = groq_client.models.list().data
+        # 1. API se models ki list nikaalo
+        available_models = [m.id for m in groq_client.models.list().data]
         
-        # 2. STRICT FILTER: Whisper, DeepSeek, aur R1 (thinking models) ko list se bahar nikal do
-        safe_live_models = []
-        for m in available_models:
-            m_id = m.id.lower()
-            if "whisper" not in m_id and "deepseek" not in m_id and "r1" not in m_id:
-                safe_live_models.append(m.id)
+        # 2. VIP LIST (Sirf wo models jo actual mein chatting ke liye best hain)
+        priority_models = [
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant",
+            "llama3-8b-8192",
+            "gemma2-9b-it"
+        ]
+        
+        # 3. List mein se jo sabse pehla VIP model zinda mile, use utha lo
+        target_model = None
+        for pm in priority_models:
+            if pm in available_models:
+                target_model = pm
+                break
+        
+        # Agar VIP list fail ho jaye, toh koi aur text model dhoondo par Llama-Guard / Deepseek bilkul mat uthao
+        if not target_model:
+            for m in available_models:
+                m_lower = m.lower()
+                if ("llama" in m_lower or "gemma" in m_lower or "mixtral" in m_lower) and \
+                   "guard" not in m_lower and "vision" not in m_lower and "deepseek" not in m_lower and "r1" not in m_lower:
+                    target_model = m
+                    break
 
-        if not safe_live_models:
-            return "Bhai Groq par ek bhi normal model nahi bacha!"
+        if not target_model:
+            return "Bhai Groq par koi chatting model zinda nahi hai."
 
-        last_error = ""
-        # 3. ZINDA AUR SAFE MODELS KO EK EK KARKE TRY KARO
-        for model_name in safe_live_models:
-            try:
-                response = groq_client.chat.completions.create(
-                    model=model_name, 
-                    messages=messages,
-                    temperature=0.8, 
-                    max_tokens=50
-                )
-                if response.choices:
-                    reply_text = response.choices[0].message.content.strip()
-                    
-                    # 4. FINAL CLEANUP (Agar galti se kuch kachra aa gaya)
-                    reply_text = re.sub(r'<think>.*?</think>', '', reply_text, flags=re.DOTALL).strip()
-                    
-                    if "Analyze User Input" in reply_text or "Satisfy Rule" in reply_text:
-                        lines = reply_text.split('\n')
-                        # Asli jawab sabse aakhri line me hota hai
-                        reply_text = lines[-1].replace("- Bot:", "").replace("- User:", "").strip()
-
-                    reply_text = reply_text.replace('"', '').replace("'", "")
-
-                    if reply_text:
-                        history.append({"role": "assistant", "content": reply_text})
-                        return reply_text
-            except Exception as e:
-                last_error = str(e)
-                continue
+        # Model chalana shuru karo
+        response = groq_client.chat.completions.create(
+            model=target_model, 
+            messages=messages,
+            temperature=0.8, 
+            max_tokens=50
+        )
+        
+        if response.choices:
+            reply_text = response.choices[0].message.content.strip()
+            
+            # FINAL CLEANUP (Filters)
+            reply_text = re.sub(r'<think>.*?</think>', '', reply_text, flags=re.DOTALL).strip()
+            
+            # Agar AI ne galti se saamne wale ka naam (SHINchan) chipka diya ho, toh use delete karo
+            if sender_name in reply_text:
+                reply_text = reply_text.replace(sender_name, "").replace(":", "").strip()
+            if "Bot:" in reply_text or "User:" in reply_text:
+                reply_text = reply_text.replace("Bot:", "").replace("User:", "").strip()
                 
-        return f"Bhai saare active models fail ho gaye: {last_error}"
+            reply_text = reply_text.replace('"', '').replace("'", "")
+
+            # Agar naam delete karne ke baad message bilkul khali ho jaye (Fallback)
+            if not reply_text or len(reply_text) < 2:
+                fallbacks = ["haan bhai bol", "kya keh raha hai?", "hmm", "sahi hai"]
+                reply_text = random.choice(fallbacks)
+
+            history.append({"role": "assistant", "content": reply_text})
+            return reply_text
+            
+        return "kya bol rha h yaar samajh nhi aara"
         
     except Exception as e:
         logging.error(f"Groq API error: {e}")
-        return f"Bhai Groq error: {e}"
+        return f"Bhai AI me error aa raha hai: {e}"
 
 # ==========================================
 # Pyrogram Client Start
@@ -193,5 +208,5 @@ def on_text_message(client: Client, message: Message):
         logging.error(f"Text error: {e}")
 
 if __name__ == "__main__":
-    logging.info("🚀 100% Real Human AI Userbot is Starting with DYNAMIC SAFE MODELS...")
+    logging.info("🚀 100% Real Human AI Userbot is Starting with VIP Models...")
     app.run()
