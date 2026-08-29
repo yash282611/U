@@ -1,57 +1,86 @@
 import time
 import random
 import logging
-import json
-import urllib.request
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from pyrogram.enums import ChatAction
+import google.generativeai as genai
 from config import API_ID, API_HASH, SESSION_STRING, GEMINI_API_KEY, GROUP_LINK
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# 1. AI Text Response Generator
-def get_ai_response(user_text: str, sender_name: str) -> str:
-    prompt = f"""You are a cool Indian friend chatting on Telegram. Reply in 100% natural, casual Hinglish.
+# 1. Gemini AI Setup (Direct Active Model)
+genai.configure(api_key=GEMINI_API_KEY)
 
-Rules:
-1. Understand chat short-forms (kkrh, kaisa h, kidar h, mast, wrud, etc.).
-2. Reply in 1 short, dynamic line like a real person typing on phone.
-3. NEVER repeat fixed canned lines.
-4. If asked for link/group, share: {GROUP_LINK}
+working_model = None
+try:
+    available = [m.name.replace("models/", "") for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+    logging.info(f"Available AI Models: {available}")
+    
+    # Priority: Connect to confirmed active model
+    priority_list = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-pro", "gemini-pro-latest"]
+    for p in priority_list:
+        if p in available:
+            try:
+                m = genai.GenerativeModel(p)
+                m.generate_content("test")
+                working_model = m
+                logging.info(f"🎯 Connected 100% to Active Model: {p}")
+                break
+            except Exception:
+                continue
+except Exception as e:
+    logging.error(f"Model selection error: {e}")
 
-User ({sender_name}) says: "{user_text}"
-Your short Hinglish reply:"""
+if not working_model:
+    working_model = genai.GenerativeModel("gemini-2.5-flash")
 
-    active_models = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-1.5-flash"]
+# 2. Dynamic Human AI Reply Generator
+def get_ai_reply(user_text: str, sender_name: str) -> str:
+    prompt = f"""You are a cool Indian guy chatting with a friend on Telegram.
+Reply in 100% natural, everyday casual Hinglish (Hindi written in English alphabets).
 
-    for model_name in active_models:
-        try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
-            payload = {
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"temperature": 0.9, "maxOutputTokens": 70}
-            }
-            req = urllib.request.Request(
-                url,
-                data=json.dumps(payload).encode("utf-8"),
-                headers={"Content-Type": "application/json"}
-            )
-            with urllib.request.urlopen(req, timeout=6) as response:
-                res_data = json.loads(response.read().decode("utf-8"))
-                reply = res_data["candidates"][0]["content"]["parts"][0]["text"].strip()
-                if reply:
-                    return reply
-        except Exception:
-            continue
-    return ""
+Chat Rules:
+1. Understand chat short-forms and context:
+   - "kkrh" / "kya kr rha h" -> tell what you are doing (e.g. 'kuch nahi bhai bas aese hi baitha tha, tu bata?')
+   - "kidar h" -> tell where you are (e.g. 'ghar pe hi hu bhai, tu kidhar hai?')
+   - "kaisa h" -> reply how you are (e.g. 'ekdum mast bhai, tu suna kaisa hai?')
+   - "kya huau" / "kya hua" -> ask back (e.g. 'kuch nahi hua bhai sab badhiya, tu bata?')
+   - "yoo" / "hi" / "oye" -> casual hello (e.g. 'aur bhai kaisa hai?')
+2. Keep replies very short (1-2 lines max).
+3. NEVER repeat the same answer for different questions.
+4. NEVER say you are an AI or bot.
+5. If someone asks for group/link, share: {GROUP_LINK}
 
-# Popular Telegram Stickers for direct sticker replies
-STICKER_LIST = [
-    "CAACAgIAAxkBAAEK1eBlvK9-h3V1Lh6DkgABw1b4a3kAAj0AA8G2wQgYjGfXW3wFHgQ",  # Thumbs up / Cool
-    "CAACAgIAAxkBAAEK1eJlvK-KzP6b2hM4g9_ySgABG3kAAl0AA8G2wQjK_HwXlB0BHgQ",  # Laughing / Fun
-    "CAACAgIAAxkBAAEK1eRlvK-W6Z4zQ4YxKjZtL-UAAkcAA8G2wQirF03mGgW5HgQ",      # Wink / Hi
-    "CAACAgIAAxkBAAEK1eZlvK-f7uO0n8cQ5f7L3OQAAiEAA8G2wQjX_d8uT4QHHgQ"       # Namaste / Respect
+Friend ({sender_name}) sent: "{user_text}"
+Your Hinglish reply:"""
+
+    try:
+        res = working_model.generate_content(prompt)
+        if res and res.text:
+            return res.text.strip()
+    except Exception as e:
+        logging.error(f"AI Generation Error: {e}")
+
+    # Smart Contextual Backup (Different for every question)
+    text_low = user_text.lower().strip()
+    if any(w in text_low for w in ["kkrh", "kya kr rha", "kya kar raha"]):
+        return random.choice(["Kuch nahi bhai, bas phone chala raha hu. Tu bata?", "Aese hi baitha hu yaar, tu kya kar raha?"])
+    elif any(w in text_low for w in ["kidar", "kahan"]):
+        return random.choice(["Ghar pe hi hu bhai, bol kya plan?", "Room pe hu yaar, tu kidhar hai?"])
+    elif any(w in text_low for w in ["kaisa", "kaisi", "haal"]):
+        return random.choice(["Ekdam bindass bhai! Tu suna?", "Sab badhiya yaar, tu bata kaisa hai?"])
+    elif any(w in text_low for w in ["kya hua", "kya huau"]):
+        return random.choice(["Kuch nahi bhai sab mast hai, tu bol?", "Sab theek hai yaar, kya hua bata?"])
+    elif any(w in text_low for w in ["hi", "hii", "hello", "oye", "yoo"]):
+        return random.choice(["Aur bhai kaisa hai?", "Haan bol bhai kya scene?"])
+    
+    return "Haan bhai, sun raha hu bol!"
+
+STICKERS = [
+    "CAACAgIAAxkBAAEK1eBlvK9-h3V1Lh6DkgABw1b4a3kAAj0AA8G2wQgYjGfXW3wFHgQ",
+    "CAACAgIAAxkBAAEK1eJlvK-KzP6b2hM4g9_ySgABG3kAAl0AA8G2wQjK_HwXlB0BHgQ",
+    "CAACAgIAAxkBAAEK1eRlvK-W6Z4zQ4YxKjZtL-UAAkcAA8G2wQirF03mGgW5HgQ"
 ]
 
 app = Client(
@@ -61,9 +90,9 @@ app = Client(
     session_string=SESSION_STRING
 )
 
-# Handler 1: Jab koi TEXT message bheje
+# Text Handler
 @app.on_message(filters.text & ~filters.me & ~filters.bot)
-def handle_text_messages(client: Client, message: Message):
+def on_text(client: Client, message: Message):
     sender = message.from_user.first_name if message.from_user else "Dost"
     user_text = message.text
     chat_id = message.chat.id
@@ -78,23 +107,21 @@ def handle_text_messages(client: Client, message: Message):
             pass
 
         time.sleep(random.uniform(1.0, 1.8))
-        reply_text = get_ai_response(user_text, sender)
+        reply_text = get_ai_reply(user_text, sender)
 
-        if reply_text:
-            message.reply_text(text=reply_text, quote=True, disable_web_page_preview=True)
-            logging.info(f"✅ AI Text Replied to [{sender}]: {reply_text}")
+        message.reply_text(text=reply_text, quote=True, disable_web_page_preview=True)
+        logging.info(f"✅ AI Replied to [{sender}]: {reply_text}")
 
-    except Exception as e:
-        logging.error(f"Text error: {e}")
+    except Exception as err:
+        logging.error(f"Text send error: {err}")
 
-# Handler 2: Jab koi STICKER bheje
+# Sticker Handler
 @app.on_message(filters.sticker & ~filters.me & ~filters.bot)
-def handle_sticker_messages(client: Client, message: Message):
+def on_sticker(client: Client, message: Message):
     sender = message.from_user.first_name if message.from_user else "Dost"
     chat_id = message.chat.id
-    sticker_emoji = message.sticker.emoji if message.sticker.emoji else "🙂"
 
-    logging.info(f"🎨 Naya Sticker Aaya from [{sender}] with Emoji: {sticker_emoji}")
+    logging.info(f"🎨 Sticker Aaya from [{sender}]")
 
     try:
         try:
@@ -103,24 +130,13 @@ def handle_sticker_messages(client: Client, message: Message):
         except Exception:
             pass
 
-        time.sleep(random.uniform(1.0, 2.0))
+        time.sleep(random.uniform(1.0, 1.6))
+        message.reply_sticker(sticker=random.choice(STICKERS), quote=True)
+        logging.info(f"✅ Replied Sticker to [{sender}]")
 
-        # Random sticker reply ya contextual Hinglish response
-        if random.random() < 0.6:
-            # 60% chance: Palat kar dusra sticker bhejega
-            random_sticker = random.choice(STICKER_LIST)
-            message.reply_sticker(sticker=random_sticker, quote=True)
-            logging.info(f"✅ Replied Sticker to [{sender}]")
-        else:
-            # 40% chance: Sticker ke emoji ko samajh kar text me roast ya tareef karega
-            ai_comment = get_ai_response(f"[Sent a sticker: {sticker_emoji}]", sender)
-            if ai_comment:
-                message.reply_text(text=ai_comment, quote=True)
-                logging.info(f"✅ AI Replied to Sticker from [{sender}]: {ai_comment}")
-
-    except Exception as e:
-        logging.error(f"Sticker handler error: {e}")
+    except Exception as err:
+        logging.error(f"Sticker send error: {err}")
 
 if __name__ == "__main__":
-    logging.info("🚀 AI Bot is LIVE & Ready for Text + Stickers!")
+    logging.info("🚀 AI Bot is LIVE...")
     app.run()
