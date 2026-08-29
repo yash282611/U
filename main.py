@@ -59,8 +59,7 @@ pyrogram.client.Client.handle_updates = safe_handle_updates
 # ==========================================
 # 🔑 APNI GROQ API KEY YAHAN DIRECT DAAL DO
 # ==========================================
-DIRECT_GROQ_KEY = "gsk_yah_apni_asli_groq_key_paste_kar_dena" 
-# (Agar yahan nahi dalni, to railway me variable ka naam 'GROQ_API_KEY' rakh dena)
+DIRECT_GROQ_KEY = "gsk_yah_apni_asli_groq_key_paste_kar_dena"
 
 try:
     groq_client = OpenAI(
@@ -69,38 +68,42 @@ try:
     )
     logging.info("🎯 Connected 100% to Groq Cloud API")
 except Exception as e:
-    logging.error(f"Groq connection error: {e}")
+    logging.error(f"Grok connection error: {e}")
 
-# Dynamic Groq Hinglish Generator
+# 100% Human-Like Ultra-Natural Hinglish Generator
 def get_ai_reply(user_text: str, sender_name: str) -> str:
-    system_prompt = f"""You are a cool, casual Indian friend chatting on Telegram. Reply like an authentic real human in natural everyday Hinglish (Hindi words written in English alphabet).
+    system_prompt = f"""You are a real 19-year-old college guy chatting casually with your close friend on Telegram. 
+Talk like an absolute human, not a robot or AI assistant.
 
-Chat Guidelines:
-1. Always understand chat short-forms & slang:
-   - "kkrh" -> kya kar rahe ho
-   - "kidar h" -> kahan ho
-   - "kaisa h" -> kaisa hai
-   - "yo" / "hi" / "oye" -> casual greeting
-2. Reply strictly based on what the user said in 1 short line.
-3. NEVER repeat fixed canned lines.
-4. NEVER say you are an AI or bot.
-5. If the user asks for a group, channel, or link, share: {GROUP_LINK}"""
+Strict Rules for Real Human Vibe:
+1. Use natural Indian slang and everyday Hinglish (Hindi words in English letters, like "bhai", "kya re", "sahi hai", "arre", "dekh", "achha").
+2. Keep replies short, casual, and conversational (1 short line, max 5-10 words usually).
+3. Vary your tone! Sometimes reply with just a laughing emoji, sometimes a short question back, sometimes casual agreement.
+4. NEVER use formal words, proper punctuation like a book, or robotic template replies.
+5. NEVER say you are an AI, bot, or language model. Act completely human.
+6. If the user asks for a group, channel, or link, share: {GROUP_LINK}
+
+Friend ({sender_name}) says: "{user_text}"
+Your natural human Hinglish reply:"""
 
     try:
         response = groq_client.chat.completions.create(
             model="llama3-70b-8192",
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Friend ({sender_name}) says: \"{user_text}\"\nYour Hinglish reply:"}
+                {"role": "user", "content": user_text}
             ],
-            temperature=0.85,
-            max_tokens=60
+            temperature=1.0,  # Thoda high temperature taaki har baar alag aur naya jhabardast reply de
+            max_tokens=40
         )
         if response.choices:
             return response.choices[0].message.content.strip()
     except Exception as e:
         logging.error(f"Groq response generation error: {e}")
-    return "Haan bhai bata, sun raha hu!"
+    
+    # Fallback agar kabhi API slow ho toh alag-alag casual lines me se ek uthayega
+    fallbacks = ["bol bhai", "kya bol rha h", "hmm sun rha hu", "haan bata", "kya scene h"]
+    return random.choice(fallbacks)
 
 STICKERS = [
     "CAACAgIAAxkBAAEK1eBlvK9-h3V1Lh6DkgABw1b4a3kAAj0AA8G2wQgYjGfXW3wFHgQ",
@@ -135,16 +138,18 @@ def on_text_message(client: Client, message: Message):
         except Exception:
             pass
 
-        time.sleep(random.uniform(1.0, 1.5))
+        # Insaan ki tarah thoda sochne ka delay (random 1.5 se 3 second tak)
+        time.sleep(random.uniform(1.5, 3.0))
 
         reply = get_ai_reply(user_text, sender)
         if reply:
-            message.reply_text(text=f"🤖 {reply}", quote=True, disable_web_page_preview=True)
-            logging.info(f"✅ Groq Replied to [{sender}]: {reply}")
+            # Bina kisi roboti emoji ke seedha normal text bhejo taaki asli lage
+            message.reply_text(text=reply, quote=True, disable_web_page_preview=True)
+            logging.info(f"✅ Human-like Replied to [{sender}]: {reply}")
 
     except Exception as e:
         logging.error(f"Text error: {e}")
 
 if __name__ == "__main__":
-    logging.info("🚀 AI Human Bot is Starting with Groq llama3-70b-8192...")
+    logging.info("🚀 100% Human-Like AI Userbot is Starting...")
     app.run()
