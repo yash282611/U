@@ -1,7 +1,6 @@
 import time
 import random
 import logging
-import os
 import pyrogram.utils
 import pyrogram.client
 from pyrogram.raw.types import InputPeerChannel, InputPeerChat, InputPeerUser, InputPeerEmpty
@@ -9,17 +8,11 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 from pyrogram.enums import ChatAction
 from openai import OpenAI
+from config import API_ID, API_HASH, SESSION_STRING, GROQ_API_KEY, GROUP_LINK
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# 1. Credentials (Seedha Railway Variables se uthayega)
-API_ID = int(os.environ.get("API_ID", "0"))
-API_HASH = os.environ.get("API_HASH", "")
-SESSION_STRING = os.environ.get("SESSION_STRING", "")
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-GROUP_LINK = os.environ.get("GROUP_LINK", "https://t.me/your_group")
-
-# 2. ROOT LEVEL FIX (Group Peer Errors ko hatane ke liye)
+# Root Level Fix for Pyrogram Group Peers
 pyrogram.utils.MIN_CHANNEL_ID = -1009999999999999
 pyrogram.utils.MAX_CHANNEL_ID = -1000000000000
 pyrogram.utils.MIN_CHAT_ID = -999999999999
@@ -63,7 +56,7 @@ async def safe_handle_updates(self, updates):
         pass
 pyrogram.client.Client.handle_updates = safe_handle_updates
 
-# 3. Groq Cloud API Setup
+# Groq Cloud API Setup
 try:
     groq_client = OpenAI(
         api_key=GROQ_API_KEY,
@@ -73,7 +66,7 @@ try:
 except Exception as e:
     logging.error(f"Groq connection error: {e}")
 
-# 4. Dynamic Groq Hinglish Generator
+# Dynamic Groq Hinglish Generator
 def get_ai_reply(user_text: str, sender_name: str) -> str:
     system_prompt = f"""You are a cool, casual Indian friend chatting on Telegram. Reply like an authentic real human in natural everyday Hinglish (Hindi words written in English alphabet).
 
