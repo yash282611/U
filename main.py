@@ -1,69 +1,58 @@
 import asyncio
 import random
 import logging
+import json
+import urllib.request
+import urllib.error
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message
 from pyrogram.enums import ChatAction
-from pyrogram.raw.functions.messages import GetAllStickers
-import google.generativeai as genai
 from config import API_ID, API_HASH, SESSION_STRING, GEMINI_API_KEY, GROUP_LINK
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# 1. Gemini AI Setup
-genai.configure(api_key=GEMINI_API_KEY)
+API_KEY = str(GEMINI_API_KEY).strip()
+MODELS_TO_TRY = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash-latest"]
 
-def connect_best_model():
-    priority_models = [
-        "gemini-2.5-flash",
-        "gemini-flash-latest",
-        "gemini-1.5-flash",
-        "gemini-3.6-flash",
-        "gemini-3.7-flash"
-    ]
-    try:
-        all_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        for target in priority_models:
-            for full_name in all_models:
-                if target in full_name:
-                    try:
-                        m = genai.GenerativeModel(full_name)
-                        m.generate_content("test")
-                        logging.info(f"🎯 AI Model Connected: {full_name}")
-                        return m
-                    except Exception:
-                        continue
-    except Exception as e:
-        logging.error(f"Model select error: {e}")
-    return genai.GenerativeModel("gemini-1.5-flash")
+# Pure REST API Call (Zero SDK/Auth Crashes)
+def fetch_gemini_reply(user_text: str, sender_name: str) -> str:
+    prompt_text = (
+        f"You are a young, friendly Indian chatting casually on Telegram with a friend.\n"
+        f"Guidelines:\n"
+        f"1. Reply strictly in natural, casual everyday Hinglish (Hindi written in English alphabet).\n"
+        f"2. Understand chat slang & short words (e.g. 'gf h teri', 'kidar gya', 'kkrh', 'kaisa h', 'hi', 'oye', 'thik').\n"
+        f"3. Keep it strictly 1-2 short sentences like a real mobile user typing.\n"
+        f"4. Never say you are an AI or bot.\n"
+        f"5. Only share this link if user asks for group/channel/link: {GROUP_LINK}\n\n"
+        f"Friend ({sender_name}) sent: \"{user_text}\"\n"
+        f"Your natural Hinglish reply:"
+    )
 
-active_ai = connect_best_model()
+    payload = {
+        "contents": [{"role": "user", "parts": [{"text": prompt_text}]}],
+        "generationConfig": {"temperature": 0.85, "maxOutputTokens": 80}
+    }
+    data_bytes = json.dumps(payload).encode("utf-8")
 
-# 2. Dynamic AI Reply Generator
-def get_ai_reply(user_text: str, sender_name: str) -> str:
-    prompt = f"""You are a cool, real Indian friend chatting casually on Telegram in natural Hinglish.
+    for model in MODELS_TO_TRY:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={API_KEY}"
+        req = urllib.request.Request(url, data=data_bytes, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=6) as response:
+                res = json.loads(response.read().decode("utf-8"))
+                text = res["candidates"][0]["content"]["parts"][0]["text"].strip()
+                if text:
+                    return text
+        except urllib.error.HTTPError as e:
+            logging.warning(f"Model {model} HTTP {e.code}")
+            continue
+        except Exception as e:
+            logging.warning(f"Model {model} error: {e}")
+            continue
 
-Guidelines:
-1. Speak in natural everyday casual Hinglish (short, friendly, real person tone).
-2. Understand slang/short-words (e.g. 'gf h teri', 'kidar gya', 'hu', 'kkrh', 'kaisa h', 'thik hb', 'hi', 'oye', 'hhh').
-3. Keep answers to 1 short line.
-4. NEVER repeat canned lines.
-5. NEVER mention being an AI or bot.
-6. If the user asks for a group, channel, or link, share: {GROUP_LINK}
+    return "Haan bhai, bol sun raha hu!"
 
-Friend ({sender_name}): "{user_text}"
-Your Hinglish reply:"""
-
-    try:
-        response = active_ai.generate_content(prompt)
-        if response and response.text:
-            return response.text.strip()
-    except Exception as e:
-        logging.error(f"AI response error: {e}")
-
-    return "Haan bhai, bolo sun raha hu!"
-
-# 3. Pyrogram Client
+# Telegram Client Setup
 app = Client(
     "group_human_userbot",
     api_id=API_ID,
@@ -71,51 +60,18 @@ app = Client(
     session_string=SESSION_STRING
 )
 
-ACCOUNT_STICKERS = []
-
-async def sync_account_stickers():
-    global ACCOUNT_STICKERS
-    ACCOUNT_STICKERS.clear()
-    
-    try:
-        all_sets = await app.invoke(GetAllStickers(hash=0))
-        if hasattr(all_sets, "sets"):
-            for item in all_sets.sets:
-                short_name = getattr(item.set, "short_name", None) if hasattr(item, "set") else getattr(item, "short_name", None)
-                if short_name:
-                    try:
-                        st_set = await app.get_sticker_set(short_name)
-                        for s in st_set.stickers:
-                            ACCOUNT_STICKERS.append(s.file_id)
-                    except Exception:
-                        continue
-    except Exception as e:
-        logging.warning(f"Account stickers load note: {e}")
-
-    if not ACCOUNT_STICKERS:
-        for backup_pack in ["AnimatedDog", "HotCherry", "Animals", "Memes"]:
-            try:
-                st_set = await app.get_sticker_set(backup_pack)
-                for s in st_set.stickers:
-                    ACCOUNT_STICKERS.append(s.file_id)
-            except Exception:
-                continue
-
-    logging.info(f"🎨 Total {len(ACCOUNT_STICKERS)} Stickers loaded in Cache!")
-
-# Filters: Only Private chats (DMs) & Groups, ignore channels/bots/self
 CHAT_FILTER = (filters.private | filters.group) & filters.incoming & ~filters.me & ~filters.bot
 
-# Text Handler
+# Text Messages Handler
 @app.on_message(filters.text & CHAT_FILTER)
-async def handle_text(client: Client, message: Message):
+async def text_handler(client: Client, message: Message):
+    sender = message.from_user.first_name if message.from_user else "Dost"
+    user_text = message.text
+    chat_id = message.chat.id
+
+    logging.info(f"📩 Naya Text [{sender}]: {user_text}")
+
     try:
-        sender = message.from_user.first_name if message.from_user else "Dost"
-        user_text = message.text
-        chat_id = message.chat.id
-
-        logging.info(f"📩 Naya Text [{sender}]: {user_text}")
-
         try:
             await client.read_chat_history(chat_id)
             await client.send_chat_action(chat_id, ChatAction.TYPING)
@@ -123,59 +79,41 @@ async def handle_text(client: Client, message: Message):
             pass
 
         await asyncio.sleep(random.uniform(1.0, 1.8))
+        reply = await asyncio.to_thread(fetch_gemini_reply, user_text, sender)
 
-        reply = await asyncio.to_thread(get_ai_reply, user_text, sender)
         if reply:
             await message.reply_text(text=reply, quote=True, disable_web_page_preview=True)
             logging.info(f"✅ Replied to [{sender}]: {reply}")
-
     except Exception as e:
         logging.error(f"Text error: {e}")
 
-# Sticker Handler
+# Sticker Messages Handler
 @app.on_message(filters.sticker & CHAT_FILTER)
-async def handle_sticker(client: Client, message: Message):
+async def sticker_handler(client: Client, message: Message):
+    sender = message.from_user.first_name if message.from_user else "Dost"
+    chat_id = message.chat.id
+
+    logging.info(f"🎨 Sticker received from [{sender}]")
+
     try:
-        sender = message.from_user.first_name if message.from_user else "Dost"
-        chat_id = message.chat.id
-
-        if message.sticker and message.sticker.file_id:
-            ACCOUNT_STICKERS.append(message.sticker.file_id)
-
-        logging.info(f"🎨 Sticker received from [{sender}]")
-
         try:
             await client.read_chat_history(chat_id)
             await client.send_chat_action(chat_id, ChatAction.CHOOSE_STICKER)
         except Exception:
             pass
 
-        await asyncio.sleep(random.uniform(1.0, 1.6))
-
-        if ACCOUNT_STICKERS:
-            chosen_sticker = random.choice(ACCOUNT_STICKERS)
-            await message.reply_sticker(sticker=chosen_sticker, quote=True)
-            logging.info(f"✅ Sent Sticker to [{sender}]")
-        else:
+        await asyncio.sleep(random.uniform(1.0, 1.5))
+        if message.sticker and message.sticker.file_id:
             await message.reply_sticker(sticker=message.sticker.file_id, quote=True)
-
+            logging.info(f"✅ Replied Sticker to [{sender}]")
     except Exception as e:
         logging.error(f"Sticker error: {e}")
 
 async def main():
     await app.start()
-    logging.info("⏳ Dialogs aur Peers sync ho rahe hain...")
-    try:
-        async for _ in app.get_dialogs():
-            pass
-    except Exception:
-        pass
-
-    await sync_account_stickers()
-    logging.info("🚀 AI Userbot is LIVE & Ready 24/7!")
+    logging.info("🚀 AI Userbot is LIVE, REST API Connected & Ready 24/7!")
     await idle()
     await app.stop()
 
 if __name__ == "__main__":
     asyncio.run(main())
- 
