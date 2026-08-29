@@ -13,12 +13,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 genai.configure(api_key=GEMINI_API_KEY)
 
 def connect_best_model():
+    # Yahan asli aur valid models ke naam daal diye hain
     priority_models = [
-        "gemini-3.6-flash",
-        "gemini-3.7-flash",
-        "gemini-3.5-flash",
-        "gemini-flash-latest",
-        "gemini-3.1-flash-lite"
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-flash-8b"
     ]
     try:
         all_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
@@ -29,7 +29,7 @@ def connect_best_model():
                 if target in full_name:
                     try:
                         m = genai.GenerativeModel(full_name)
-                        m.generate_content("hi")
+                        # Startup par faltu request hata di taaki limit waste na ho
                         logging.info(f"🎯 Connected 100% to Active AI Model: {full_name}")
                         return m
                     except Exception as err:
@@ -38,7 +38,8 @@ def connect_best_model():
     except Exception as e:
         logging.error(f"Error finding model: {e}")
 
-    return genai.GenerativeModel("gemini-3.6-flash")
+    # Default fallback model
+    return genai.GenerativeModel("models/gemini-1.5-flash")
 
 active_ai = connect_best_model()
 
