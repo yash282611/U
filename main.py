@@ -1,7 +1,7 @@
 import pyrogram.utils
 import pyrogram.client
 
-# 1. PERMANENT FIX: 64-bit / 14-Digit Channel ID & Safe Update Loop
+# 1. 64-bit Telegram IDs & Channel Crash Bypass
 pyrogram.utils.MIN_CHANNEL_ID = -1009999999999999
 pyrogram.utils.MAX_CHANNEL_ID = -1000000000000
 pyrogram.utils.MIN_CHAT_ID = -999999999999
@@ -31,7 +31,6 @@ async def safe_handle_updates(self, updates):
     try:
         await _orig_handle_updates(self, updates)
     except Exception:
-        # Silently catch invalid background channel drops without killing the loop
         pass
 
 pyrogram.client.Client.handle_updates = safe_handle_updates
@@ -56,9 +55,9 @@ logging.basicConfig(
 API_KEY = str(GEMINI_API_KEY).strip()
 MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
 
-# Fast Dynamic AI Generator (DM + Group Friendly)
+# Direct AI Reply Generator (DM + Group Friendly)
 def generate_ai_reply(user_text: str, sender_name: str, is_group: bool) -> str:
-    chat_context = "in a Telegram Group chat" if is_group else "in a private 1-on-1 DM"
+    chat_context = "in a Telegram Group chat" if is_group else "in a 1-on-1 private DM"
 
     prompt_text = (
         f"You are a young, cool Indian guy chatting casually {chat_context}.\n"
@@ -79,7 +78,7 @@ def generate_ai_reply(user_text: str, sender_name: str, is_group: bool) -> str:
     )
 
     payload = {
-        "contents": [{"parts": [{"text": prompt_text}]}],
+        "contents": [{"role": "user", "parts": [{"text": prompt_text}]}],
         "generationConfig": {"temperature": 0.9, "maxOutputTokens": 60}
     }
     data_bytes = json.dumps(payload).encode("utf-8")
@@ -96,7 +95,7 @@ def generate_ai_reply(user_text: str, sender_name: str, is_group: bool) -> str:
         except Exception:
             continue
 
-    # Multi-Variant Fallbacks (If API timeout occurs)
+    # Multi-Variant Fallbacks (Zero Repetition)
     low = user_text.lower().strip()
     if any(k in low for k in ["khana", "lunch", "dinner"]):
         return random.choice([
