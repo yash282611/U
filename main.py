@@ -1,3 +1,42 @@
+import pyrogram.utils
+
+# 1. PERMANENT ENGINE FIX: Telegram 64-bit / 14-Digit Channel ID Patch
+pyrogram.utils.MIN_CHANNEL_ID = -100999999999999
+pyrogram.utils.MAX_CHANNEL_ID = -1000000000000
+pyrogram.utils.MIN_CHAT_ID = -999999999999
+pyrogram.utils.MAX_CHAT_ID = -1
+pyrogram.utils.MIN_USER_ID = 0
+pyrogram.utils.MAX_USER_ID = 99999999999999
+
+def patched_get_peer_type(peer_id: int) -> str:
+    if peer_id < 0:
+        if str(peer_id).startswith("-100"):
+            return "channel"
+        return "chat"
+    return "user"
+
+def patched_get_channel_id(peer_id: int) -> int:
+    s = str(peer_id)
+    if s.startswith("-100"):
+        return peer_id
+    return int(f"-100{peer_id}")
+
+pyrogram.utils.get_peer_type = patched_get_peer_type
+pyrogram.utils.get_channel_id = patched_get_channel_id
+
+import pyrogram.client
+
+orig_handle_updates = pyrogram.client.Client.handle_updates
+
+async def safe_handle_updates(self, updates):
+    try:
+        await orig_handle_updates(self, updates)
+    except Exception:
+        pass
+
+pyrogram.client.Client.handle_updates = safe_handle_updates
+
+# 2. Main Bot Setup
 import asyncio
 import random
 import logging
@@ -7,8 +46,6 @@ import urllib.error
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message
 from pyrogram.enums import ChatAction, ChatType
-
-# Direct Clean Import from config.py
 from config import API_ID, API_HASH, SESSION_STRING, GEMINI_API_KEY, GROUP_LINK
 
 logging.basicConfig(
@@ -17,22 +54,27 @@ logging.basicConfig(
 )
 
 API_KEY = str(GEMINI_API_KEY).strip()
-MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash-latest"]
+WORKING_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-flash-latest"
+]
 
-# 1. Pure Fast REST AI Engine (DM + Group Friendly)
+# Fast REST AI Engine
 def generate_ai_reply(user_text: str, sender_name: str, is_group: bool) -> str:
-    context = "in a Telegram Group chat" if is_group else "in a private 1-on-1 chat"
+    chat_context = "in a Telegram Group chat" if is_group else "in a private 1-on-1 DM"
 
     prompt_text = (
-        f"You are a young, cool Indian guy chatting casually on Telegram {context}.\n"
+        f"You are a young, cool Indian guy chatting casually on Telegram {chat_context}.\n"
         f"Rules:\n"
-        f"1. Reply strictly in 100% natural conversational everyday Hinglish (Hindi written in English alphabets).\n"
-        f"2. Reply naturally to the exact message:\n"
+        f"1. Reply strictly in natural, casual conversational Hinglish (Hindi written in English alphabet).\n"
+        f"2. Answer directly and contextually like a real human:\n"
         f"   - 'khana khya' / 'khana khaya' -> haan bhai bas abhi khaya, tune khaya kya?\n"
         f"   - 'kkrh' / 'kya kr rha h' -> kuch nahi bhai bas chill kar raha hu, tu bata kya scene?\n"
         f"   - 'kidar h' / 'kahan ho' -> ghar pe hi hu bhai, bol kya plan hai?\n"
-        f"   - 'hi' / 'hello' / 'yoo' / 'oye' / 'mieew' -> aur bhai, kya haal chaal?\n"
-        f"   - Any banter or questions -> reply smartly and naturally like a real close friend.\n"
+        f"   - 'hi' / 'hello' / 'yoo' / 'heyy' / 'oye' -> aur bhai, kya haal chaal?\n"
+        f"   - Any questions or casual banter -> reply smartly and naturally like a real close friend.\n"
         f"3. Strictly 1 short, crisp sentence (never long paragraphs).\n"
         f"4. Never say you are an AI or bot.\n"
         f"5. Only share this link if user asks for group/link: {GROUP_LINK}\n\n"
@@ -46,7 +88,7 @@ def generate_ai_reply(user_text: str, sender_name: str, is_group: bool) -> str:
     }
     data_bytes = json.dumps(payload).encode("utf-8")
 
-    for model in MODELS:
+    for model in WORKING_MODELS:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={API_KEY}"
         req = urllib.request.Request(url, data=data_bytes, headers={"Content-Type": "application/json"})
         try:
@@ -58,12 +100,12 @@ def generate_ai_reply(user_text: str, sender_name: str, is_group: bool) -> str:
         except Exception:
             continue
 
-    # Instant Contextual Fallback agar internet drop ho
+    # Fast Smart Fallbacks
     low = user_text.lower().strip()
     if any(k in low for k in ["khana", "lunch", "dinner"]):
-        return "Haan bhai bas abhi khaya, tune khana khaya kya?"
+        return "Haan bhai bas abhi khaya, tune khaya kya?"
     elif any(k in low for k in ["kkrh", "kya kr", "kya kar"]):
-        return "Kuch nahi bhai bas phone chala raha tha, tu bata kya chal raha?"
+        return "Kuch nahi bhai bas phone chala raha tha, tu bata kya scene?"
     elif any(k in low for k in ["kidar", "kahan"]):
         return "Ghar pe hi hu bhai, bol kya baat hui?"
     elif any(k in low for k in ["gf", "bandi"]):
@@ -73,7 +115,7 @@ def generate_ai_reply(user_text: str, sender_name: str, is_group: bool) -> str:
 
     return "Haan bhai bol, sun raha hu!"
 
-# 2. Telegram Client Setup
+# Telegram Client Setup
 app = Client(
     "group_human_userbot",
     api_id=int(API_ID),
@@ -83,7 +125,7 @@ app = Client(
 
 STICKER_VAULT = []
 
-# Unified Handler for DM + Groups
+# Unified Handler for DM + All Groups
 @app.on_message(filters.incoming & ~filters.me & ~filters.bot)
 async def message_dispatcher(client: Client, message: Message):
     try:
@@ -134,7 +176,7 @@ async def message_dispatcher(client: Client, message: Message):
 
 async def main():
     await app.start()
-    logging.info("🚀 AI Userbot is 100% LIVE for DM + All Groups (Direct Config)!")
+    logging.info("🚀 AI Userbot is 100% LIVE for DM + All Groups!")
     await idle()
     await app.stop()
 
