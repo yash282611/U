@@ -4,6 +4,33 @@ import logging
 import json
 import urllib.request
 import urllib.error
+import pyrogram.utils
+
+# --- CRITICAL FIX: Patch Pyrogram for 13-digit / 64-bit Telegram IDs ---
+pyrogram.utils.MIN_CHANNEL_ID = -100999999999999
+pyrogram.utils.MAX_CHANNEL_ID = -1000000000000
+pyrogram.utils.MIN_CHAT_ID = -999999999999
+pyrogram.utils.MAX_CHAT_ID = -1
+pyrogram.utils.MIN_USER_ID = 0
+pyrogram.utils.MAX_USER_ID = 99999999999999
+
+def patched_get_peer_type(peer_id: int) -> str:
+    if peer_id < 0:
+        if str(peer_id).startswith("-100"):
+            return "channel"
+        return "chat"
+    return "user"
+
+def patched_get_channel_id(peer_id: int) -> int:
+    s = str(peer_id)
+    if s.startswith("-100"):
+        return peer_id
+    return int(f"-100{peer_id}")
+
+pyrogram.utils.get_peer_type = patched_get_peer_type
+pyrogram.utils.get_channel_id = patched_get_channel_id
+# ----------------------------------------------------------------------
+
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message
 from pyrogram.enums import ChatAction
@@ -12,16 +39,22 @@ from config import API_ID, API_HASH, SESSION_STRING, GEMINI_API_KEY, GROUP_LINK
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 API_KEY = str(GEMINI_API_KEY).strip()
-MODELS_TO_TRY = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash-latest"]
+ACTIVE_MODELS = [
+    "gemini-3.6-flash",
+    "gemini-3.7-flash",
+    "gemini-3.5-flash",
+    "gemini-flash-latest",
+    "gemini-2.5-flash"
+]
 
-# Pure REST API Call (Zero SDK/Auth Crashes)
+# High-Speed REST API Response Generator
 def fetch_gemini_reply(user_text: str, sender_name: str) -> str:
     prompt_text = (
         f"You are a young, friendly Indian chatting casually on Telegram with a friend.\n"
         f"Guidelines:\n"
         f"1. Reply strictly in natural, casual everyday Hinglish (Hindi written in English alphabet).\n"
-        f"2. Understand chat slang & short words (e.g. 'gf h teri', 'kidar gya', 'kkrh', 'kaisa h', 'hi', 'oye', 'thik').\n"
-        f"3. Keep it strictly 1-2 short sentences like a real mobile user typing.\n"
+        f"2. Understand chat slang & short words (e.g. 'gf h teri', 'kidar hoo', 'kkrh', 'kaisa h', 'hi', 'yooo', 'oye').\n"
+        f"3. Keep it strictly 1 short sentence like a real mobile user typing.\n"
         f"4. Never say you are an AI or bot.\n"
         f"5. Only share this link if user asks for group/channel/link: {GROUP_LINK}\n\n"
         f"Friend ({sender_name}) sent: \"{user_text}\"\n"
@@ -30,11 +63,11 @@ def fetch_gemini_reply(user_text: str, sender_name: str) -> str:
 
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt_text}]}],
-        "generationConfig": {"temperature": 0.85, "maxOutputTokens": 80}
+        "generationConfig": {"temperature": 0.85, "maxOutputTokens": 70}
     }
     data_bytes = json.dumps(payload).encode("utf-8")
 
-    for model in MODELS_TO_TRY:
+    for model in ACTIVE_MODELS:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={API_KEY}"
         req = urllib.request.Request(url, data=data_bytes, headers={"Content-Type": "application/json"})
         try:
@@ -43,14 +76,10 @@ def fetch_gemini_reply(user_text: str, sender_name: str) -> str:
                 text = res["candidates"][0]["content"]["parts"][0]["text"].strip()
                 if text:
                     return text
-        except urllib.error.HTTPError as e:
-            logging.warning(f"Model {model} HTTP {e.code}")
-            continue
-        except Exception as e:
-            logging.warning(f"Model {model} error: {e}")
+        except Exception:
             continue
 
-    return "Haan bhai, bol sun raha hu!"
+    return "Haan bhai, bol kya haal chaal!"
 
 # Telegram Client Setup
 app = Client(
@@ -60,10 +89,8 @@ app = Client(
     session_string=SESSION_STRING
 )
 
-CHAT_FILTER = (filters.private | filters.group) & filters.incoming & ~filters.me & ~filters.bot
-
 # Text Messages Handler
-@app.on_message(filters.text & CHAT_FILTER)
+@app.on_message(filters.text & filters.incoming & ~filters.me & ~filters.bot)
 async def text_handler(client: Client, message: Message):
     sender = message.from_user.first_name if message.from_user else "Dost"
     user_text = message.text
@@ -88,7 +115,7 @@ async def text_handler(client: Client, message: Message):
         logging.error(f"Text error: {e}")
 
 # Sticker Messages Handler
-@app.on_message(filters.sticker & CHAT_FILTER)
+@app.on_message(filters.sticker & filters.incoming & ~filters.me & ~filters.bot)
 async def sticker_handler(client: Client, message: Message):
     sender = message.from_user.first_name if message.from_user else "Dost"
     chat_id = message.chat.id
@@ -111,7 +138,7 @@ async def sticker_handler(client: Client, message: Message):
 
 async def main():
     await app.start()
-    logging.info("🚀 AI Userbot is LIVE, REST API Connected & Ready 24/7!")
+    logging.info("🚀 AI Userbot is LIVE & Ready 24/7!")
     await idle()
     await app.stop()
 
