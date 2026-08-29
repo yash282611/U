@@ -96,7 +96,7 @@ Strict Rules for chatting:
     history = chat_histories[chat_id]
     history.append({"role": "user", "content": f"{sender_name}: {user_text}"})
 
-    # Puraane 10 messages yaad rakhega, usse zyada delete kar dega taaki load na pade
+    # Puraane 10 messages yaad rakhega
     if len(history) > 10:
         history.pop(0)
 
@@ -104,24 +104,24 @@ Strict Rules for chatting:
 
     try:
         # ====================================================
-        # YAHAN NAYA MODEL UPDATE KIYA HAI JO KABHI BAND NAHI HOGA
+        # YAHAN MIXTRAL MODEL LAGAYA HAI JO SABSE STABLE HAI
         # ====================================================
         response = groq_client.chat.completions.create(
-            model="llama-3.1-70b-versatile",
+            model="mixtral-8x7b-32768",
             messages=messages,
-            temperature=0.9, # 0.9 matlab ekdum natural aur creative sochega
+            temperature=0.9, 
             max_tokens=50
         )
         if response.choices:
             reply_text = response.choices[0].message.content.strip()
             
-            # Bot ka diya hua jawab bhi history me save karenge
+            # Bot ka diya hua jawab history me save karenge
             history.append({"role": "assistant", "content": reply_text})
             return reply_text
     except Exception as e:
         logging.error(f"Groq response generation error: {e}")
 
-    # Agar kabhi Groq ki API fail hui toh ye backup line aayegi
+    # Agar api fail hui toh backup line
     return "kya bol rha h yaar samajh nhi aara"
 
 # ==========================================
@@ -166,5 +166,5 @@ def on_text_message(client: Client, message: Message):
         logging.error(f"Text error: {e}")
 
 if __name__ == "__main__":
-    logging.info("🚀 100% Real Human AI Userbot is Starting with New Model...")
+    logging.info("🚀 100% Real Human AI Userbot is Starting with Stable Model...")
     app.run()
