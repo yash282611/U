@@ -1,8 +1,9 @@
 import pyrogram.utils
 import pyrogram.client
-from pyrogram.raw.types import InputPeerEmpty
+import pyrogram.methods.advanced.resolve_peer
+from pyrogram.raw.types import InputPeerChannel, InputPeerChat, InputPeerUser, InputPeerEmpty
 
-# 1. 64-bit Telegram IDs & Safe Resolver Patch
+# 1. PERMANENT CORE PATCH: 64-Bit Channel IDs & Resolver Crash Bypass
 pyrogram.utils.MIN_CHANNEL_ID = -1009999999999999
 pyrogram.utils.MAX_CHANNEL_ID = -1000000000000
 pyrogram.utils.MIN_CHAT_ID = -999999999999
@@ -11,9 +12,10 @@ pyrogram.utils.MIN_USER_ID = 0
 pyrogram.utils.MAX_USER_ID = 999999999999999
 
 def patched_get_peer_type(peer_id: int) -> str:
-    if peer_id < 0:
-        if str(peer_id).startswith("-100"):
-            return "channel"
+    s = str(peer_id)
+    if s.startswith("-100"):
+        return "channel"
+    elif peer_id < 0:
         return "chat"
     return "user"
 
@@ -25,16 +27,38 @@ def patched_get_channel_id(peer_id: int) -> int:
 
 pyrogram.utils.get_peer_type = patched_get_peer_type
 pyrogram.utils.get_channel_id = patched_get_channel_id
+pyrogram.methods.advanced.resolve_peer.utils.get_peer_type = patched_get_peer_type
+pyrogram.methods.advanced.resolve_peer.utils.get_channel_id = patched_get_channel_id
 
-_orig_resolve_peer = pyrogram.client.Client.resolve_peer
+# Safe Resolve Peer Patch (Prevents update task from dying)
+orig_resolve_peer = pyrogram.client.Client.resolve_peer
 
 async def safe_resolve_peer(self, peer_id):
     try:
-        return await _orig_resolve_peer(self, peer_id)
+        return await orig_resolve_peer(self, peer_id)
     except Exception:
+        if isinstance(peer_id, int):
+            s = str(peer_id)
+            if s.startswith("-100"):
+                return InputPeerChannel(channel_id=int(s[4:]), access_hash=0)
+            elif peer_id < 0:
+                return InputPeerChat(chat_id=-peer_id)
+            else:
+                return InputPeerUser(user_id=peer_id, access_hash=0)
         return InputPeerEmpty()
 
 pyrogram.client.Client.resolve_peer = safe_resolve_peer
+
+# Safe Update Handler Patch
+orig_handle_updates = pyrogram.client.Client.handle_updates
+
+async def safe_handle_updates(self, updates):
+    try:
+        await orig_handle_updates(self, updates)
+    except Exception:
+        pass
+
+pyrogram.client.Client.handle_updates = safe_handle_updates
 
 # 2. Main Bot Setup
 import asyncio
@@ -43,7 +67,7 @@ import logging
 import json
 import urllib.request
 import urllib.error
-from pyrogram import Client, filters, idle
+from pyrogram import Client, idle
 from pyrogram.types import Message
 from pyrogram.enums import ChatAction, ChatType
 from config import API_ID, API_HASH, SESSION_STRING, GEMINI_API_KEY, GROUP_LINK
@@ -60,23 +84,24 @@ WORKING_MODELS = [
     "gemini-1.5-flash"
 ]
 
-# Fast Dynamic AI Generator (DM + Group Friendly)
+# Fast Dynamic AI Generator (DM + Group)
 def fetch_gemini_reply(user_text: str, sender_name: str, is_group: bool) -> str:
     chat_context = "in a Telegram Group chat" if is_group else "in a private 1-on-1 chat"
 
     prompt_text = (
-        f"You are a young, cool Indian guy chatting casually {chat_context}.\n"
+        f"You are a young, friendly Indian guy chatting casually {chat_context}.\n"
         f"Strict Rules for replying:\n"
         f"1. Reply strictly in 100% natural, casual conversational everyday Hinglish (Hindi written in English alphabets).\n"
-        f"2. Act like a real human friend typing fast on mobile:\n"
+        f"2. Act like a real human friend typing fast on mobile (words to use: haan, bhai, yaar, arey, mast, sahi hai, bilkul, tu bata, abhi, bol).\n"
+        f"3. Directly answer what the friend said contextually:\n"
         f"   - If greetings ('hi', 'hello', 'oye', 'yoo', 'heyy', 'hu', 'uhii', 'hpo', 'h8', 'hii'): friendly casual reply (e.g. 'aur bhai kya chal raha hai?', 'haan bhai bol kya haal?')\n"
         f"   - If food ('khana khya', 'lunch', 'dinner'): natural reply (e.g. 'haan bhai bas abhi khaya, tune khaya kya?', 'abhi nahi yaar thodi der me khaunga')\n"
         f"   - If activity ('kkrh', 'krh', 'kya kar raha hai'): natural reply (e.g. 'kuch nahi bhai bas phone chala raha hu, tu bata kya scene?')\n"
         f"   - If location ('kidhar hai', 'kahan ho'): natural reply (e.g. 'ghar pe hi hu bhai, bol kya plan hai?')\n"
-        f"   - Any jokes, slang or banter: reply with natural, fun friend-like banter.\n"
-        f"3. Strictly 1 short, crisp sentence (never write long paragraphs).\n"
-        f"4. Never say you are an AI or bot.\n"
-        f"5. Only share this link if user specifically asks for group/link: {GROUP_LINK}\n\n"
+        f"   - Any jokes, slang, gibberish or chat: reply with natural, fun friend-like banter.\n"
+        f"4. Strictly 1 short, crisp sentence (never write long paragraphs).\n"
+        f"5. Never say you are an AI or bot.\n"
+        f"6. Only share this link if user specifically asks for group/link: {GROUP_LINK}\n\n"
         f"Friend ({sender_name}) said: \"{user_text}\"\n"
         f"Your quick Hinglish reply:"
     )
@@ -96,11 +121,10 @@ def fetch_gemini_reply(user_text: str, sender_name: str, is_group: bool) -> str:
                 text = res["candidates"][0]["content"]["parts"][0]["text"].strip()
                 if text:
                     return text
-        except Exception as e:
-            logging.warning(f"AI Model {model} note: {e}")
+        except Exception:
             continue
 
-    # Multi-Variant Fallbacks (Zero Static Repetition)
+    # Multi-Variant Fallbacks (Zero Repetition)
     low = user_text.lower().strip()
     if any(k in low for k in ["khana", "lunch", "dinner"]):
         return random.choice([
@@ -146,13 +170,14 @@ app = Client(
 
 STICKER_VAULT = []
 
-# Unified Message Handler for DM + Groups
-@app.on_message(~filters.me)
-async def message_dispatcher(client: Client, message: Message):
+# Universal Clean Message Listener
+@app.on_message()
+async def universal_dispatcher(client: Client, message: Message):
     try:
-        if message.from_user and message.from_user.is_bot:
-            return
+        # Ignore own messages & bot messages
         if message.outgoing:
+            return
+        if message.from_user and (message.from_user.is_self or message.from_user.is_bot):
             return
 
         sender = message.from_user.first_name if message.from_user else "Dost"
@@ -165,7 +190,7 @@ async def message_dispatcher(client: Client, message: Message):
             if message.sticker.file_id:
                 STICKER_VAULT.append(message.sticker.file_id)
 
-            logging.info(f"🎨 Sticker from [{sender}] in [{chat_title}]")
+            logging.info(f"🎨 Sticker received from [{sender}] in [{chat_title}]")
 
             try:
                 await client.send_chat_action(chat_id, ChatAction.CHOOSE_STICKER)
@@ -198,7 +223,7 @@ async def message_dispatcher(client: Client, message: Message):
                 logging.info(f"✅ AI Replied to [{sender}] in [{chat_title}]: {reply}")
 
     except Exception as err:
-        logging.error(f"Handler error: {err}")
+        logging.error(f"Execution Error: {err}")
 
 async def main():
     await app.start()
