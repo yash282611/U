@@ -102,10 +102,10 @@ Strict Rules for chatting:
 
     try:
         # ====================================================
-        # YAHAN EK AUR NAYA CURRENT MODEL UPDATE KIYA HAI
+        # YAHAN GROQ KA SABSE NAYA AUR ACTIVE MODEL DAALA HAI
         # ====================================================
         response = groq_client.chat.completions.create(
-            model="llama3-8b-8192", 
+            model="llama-3.1-8b-instant", 
             messages=messages,
             temperature=0.9, 
             max_tokens=50
