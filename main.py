@@ -7,7 +7,7 @@ import pyrogram.raw.functions.updates as raw_update_funcs
 from pyrogram.raw.types import InputPeerChannel, InputPeerChat, InputPeerUser, InputPeerEmpty
 from pyrogram.errors import ChannelInvalid, ChannelPrivate, PeerIdInvalid, RPCError
 
-# 1. ROOT LEVEL FIX: 64-Bit IDs & Low-Level Session Crash Neutralizer
+# 1. ROOT FIX: 64-Bit IDs & Bulletproof Session Invoker
 pyrogram.utils.MIN_CHANNEL_ID = -1009999999999999
 pyrogram.utils.MAX_CHANNEL_ID = -1000000000000
 pyrogram.utils.MIN_CHAT_ID = -999999999999
@@ -34,26 +34,33 @@ pyrogram.utils.get_channel_id = patched_get_channel_id
 pyrogram.methods.advanced.resolve_peer.utils.get_peer_type = patched_get_peer_type
 pyrogram.methods.advanced.resolve_peer.utils.get_channel_id = patched_get_channel_id
 
-# Safe Low-Level Session Invoker
+# Fully Dynamic Session Invoker (Accepts any number of args cleanly)
 orig_session_invoke = pyrogram.session.session.Session.invoke
 
-async def safe_session_invoke(self, query, timeout=None):
+async def safe_session_invoke(self, *args, **kwargs):
+    query = args[0] if len(args) > 0 else kwargs.get("query")
     try:
-        return await orig_session_invoke(self, query, timeout=timeout)
+        return await orig_session_invoke(self, *args, **kwargs)
     except Exception as e:
         if isinstance(query, raw_update_funcs.GetChannelDifference):
             pts_val = getattr(query, "pts", 0)
-            return raw_updates.ChannelDifferenceEmpty(final=True, pts=pts_val)
+            try:
+                return raw_updates.ChannelDifferenceEmpty(pts=pts_val, final=True)
+            except Exception:
+                return raw_updates.ChannelDifferenceEmpty(pts=pts_val)
         if any(x in str(e) for x in ["CHANNEL_INVALID", "PEER_ID_INVALID", "CHANNEL_PRIVATE"]):
             if isinstance(query, raw_update_funcs.GetChannelDifference):
                 pts_val = getattr(query, "pts", 0)
-                return raw_updates.ChannelDifferenceEmpty(final=True, pts=pts_val)
+                try:
+                    return raw_updates.ChannelDifferenceEmpty(pts=pts_val, final=True)
+                except Exception:
+                    return raw_updates.ChannelDifferenceEmpty(pts=pts_val)
             return None
         raise e
 
 pyrogram.session.session.Session.invoke = safe_session_invoke
 
-# Safe Peer Resolver (Prevents KeyError)
+# Safe Resolve Peer (Prevents KeyError)
 orig_resolve_peer = pyrogram.client.Client.resolve_peer
 
 async def safe_resolve_peer(self, peer_id):
@@ -71,17 +78,6 @@ async def safe_resolve_peer(self, peer_id):
         return InputPeerEmpty()
 
 pyrogram.client.Client.resolve_peer = safe_resolve_peer
-
-# Safe Update Handler
-orig_handle_updates = pyrogram.client.Client.handle_updates
-
-async def safe_handle_updates(self, updates):
-    try:
-        await orig_handle_updates(self, updates)
-    except Exception:
-        pass
-
-pyrogram.client.Client.handle_updates = safe_handle_updates
 
 # 2. Main Bot Setup
 import asyncio
@@ -115,7 +111,7 @@ def fetch_gemini_reply(user_text: str, sender_name: str, is_group: bool) -> str:
     prompt_text = (
         f"You are a young, cool Indian guy chatting casually {chat_context}.\n"
         f"Strict Rules for replying:\n"
-        f"1. Reply strictly in 100% natural, casual conversational everyday Hinglish (Hindi written in English alphabets).\n"
+        f"1. Reply strictly in 100% natural, casual everyday conversational Hinglish (Hindi written in English alphabets).\n"
         f"2. Act like a real human friend typing fast on mobile (words to use: haan, bhai, yaar, arey, mast, sahi hai, bilkul, tu bata, abhi, bol).\n"
         f"3. Directly answer what the friend said contextually:\n"
         f"   - If greetings ('hi', 'hello', 'oye', 'yoo', 'heyy', 'hu', 'uhii', 'hpo', 'h8', 'hii'): friendly casual reply (e.g. 'aur bhai kya chal raha hai?', 'haan bhai bol kya haal?')\n"
