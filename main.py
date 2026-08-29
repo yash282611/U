@@ -101,8 +101,11 @@ Strict Rules for chatting:
     messages = [{"role": "system", "content": system_prompt}] + list(history)
 
     try:
+        # ====================================================
+        # YAHAN EK AUR NAYA CURRENT MODEL UPDATE KIYA HAI
+        # ====================================================
         response = groq_client.chat.completions.create(
-            model="mixtral-8x7b-32768",
+            model="llama3-8b-8192", 
             messages=messages,
             temperature=0.9, 
             max_tokens=50
@@ -114,9 +117,6 @@ Strict Rules for chatting:
             return reply_text
     except Exception as e:
         logging.error(f"Groq response generation error: {e}")
-        # ====================================================
-        # YAHAN ERROR SEEDHA CHAT MEIN AAYEGA DEBUGGING KE LIYE
-        # ====================================================
         return f"Bhai AI me error aa raha hai, ye dekh: {e}"
 
 # ==========================================
@@ -159,5 +159,5 @@ def on_text_message(client: Client, message: Message):
         logging.error(f"Text error: {e}")
 
 if __name__ == "__main__":
-    logging.info("🚀 100% Real Human AI Userbot is Starting with Error Debugger...")
+    logging.info("🚀 100% Real Human AI Userbot is Starting with Active Model...")
     app.run()
