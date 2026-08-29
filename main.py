@@ -80,7 +80,6 @@ except Exception as e:
 chat_histories = defaultdict(list)
 
 def get_ai_reply(chat_id: int, user_text: str, sender_name: str) -> str:
-    # Yahan AI ko bilkul insaan banne ki strict warning di gayi hai
     system_prompt = f"""You are a real 19-year-old Indian guy chatting with your close friend on Telegram. 
 You MUST act exactly like a normal human being. NEVER act like an AI, bot, or assistant.
 
@@ -96,16 +95,12 @@ Strict Rules for chatting:
     history = chat_histories[chat_id]
     history.append({"role": "user", "content": f"{sender_name}: {user_text}"})
 
-    # Puraane 10 messages yaad rakhega
     if len(history) > 10:
         history.pop(0)
 
     messages = [{"role": "system", "content": system_prompt}] + list(history)
 
     try:
-        # ====================================================
-        # YAHAN MIXTRAL MODEL LAGAYA HAI JO SABSE STABLE HAI
-        # ====================================================
         response = groq_client.chat.completions.create(
             model="mixtral-8x7b-32768",
             messages=messages,
@@ -115,14 +110,14 @@ Strict Rules for chatting:
         if response.choices:
             reply_text = response.choices[0].message.content.strip()
             
-            # Bot ka diya hua jawab history me save karenge
             history.append({"role": "assistant", "content": reply_text})
             return reply_text
     except Exception as e:
         logging.error(f"Groq response generation error: {e}")
-
-    # Agar api fail hui toh backup line
-    return "kya bol rha h yaar samajh nhi aara"
+        # ====================================================
+        # YAHAN ERROR SEEDHA CHAT MEIN AAYEGA DEBUGGING KE LIYE
+        # ====================================================
+        return f"Bhai AI me error aa raha hai, ye dekh: {e}"
 
 # ==========================================
 # Pyrogram Client Start
@@ -146,7 +141,6 @@ def on_text_message(client: Client, message: Message):
 
         logging.info(f"📩 Naya Text [{sender}]: {user_text}")
 
-        # Typing action dikhane ke liye
         try:
             if not message.outgoing:
                 client.read_chat_history(chat_id)
@@ -154,7 +148,6 @@ def on_text_message(client: Client, message: Message):
         except Exception:
             pass
 
-        # Ek normal insaan ki tarah type karne me thoda time (1.5 se 3 seconds)
         time.sleep(random.uniform(1.5, 3.0))
 
         reply = get_ai_reply(chat_id, user_text, sender)
@@ -166,5 +159,5 @@ def on_text_message(client: Client, message: Message):
         logging.error(f"Text error: {e}")
 
 if __name__ == "__main__":
-    logging.info("🚀 100% Real Human AI Userbot is Starting with Stable Model...")
+    logging.info("🚀 100% Real Human AI Userbot is Starting with Error Debugger...")
     app.run()
