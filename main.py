@@ -81,7 +81,6 @@ except Exception as e:
 chat_histories = defaultdict(list)
 
 def get_ai_reply(chat_id: int, user_text: str, sender_name: str) -> str:
-    # SYSTEM PROMPT MEIN STRICT WARNING DAAL DI HAI
     system_prompt = f"""You are a real 19-year-old Indian guy chatting with your close friend on Telegram. 
 You MUST act exactly like a normal human being. NEVER act like an AI, bot, or assistant.
 
@@ -94,7 +93,7 @@ Strict Rules for chatting:
 5. NEVER repeat the same sentence. Think and give a fresh, natural reply every time.
 6. If they ask for a group or channel link, share: {GROUP_LINK}
 
-CRITICAL INSTRUCTION: YOU MUST ONLY OUTPUT THE FINAL CHAT MESSAGE. DO NOT OUTPUT YOUR THINKING PROCESS, ANALYSIS, RULES, OR ANY NUMBERED LISTS. JUST SPEAK DIRECTLY AS THE PERSON."""
+CRITICAL: ONLY output your direct reply. NO analysis, NO thinking steps, NO rules, NO quotes, NO 'Bot:' prefix. Just the pure conversational reply."""
 
     history = chat_histories[chat_id]
     history.append({"role": "user", "content": f"{sender_name}: {user_text}"})
@@ -105,16 +104,22 @@ CRITICAL INSTRUCTION: YOU MUST ONLY OUTPUT THE FINAL CHAT MESSAGE. DO NOT OUTPUT
     messages = [{"role": "system", "content": system_prompt}] + list(history)
 
     try:
-        # YAHAN SIRF SAFE MODELS KI LIST HAI JO KABHI THINKING LEAK NAHI KARTE
-        safe_models = [
-            "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant",
-            "llama3-8b-8192",
-            "gemma2-9b-it"
-        ]
+        # 1. GROQ SE POOCHO KYA ZINDA HAI
+        available_models = groq_client.models.list().data
+        
+        # 2. STRICT FILTER: Whisper, DeepSeek, aur R1 (thinking models) ko list se bahar nikal do
+        safe_live_models = []
+        for m in available_models:
+            m_id = m.id.lower()
+            if "whisper" not in m_id and "deepseek" not in m_id and "r1" not in m_id:
+                safe_live_models.append(m.id)
+
+        if not safe_live_models:
+            return "Bhai Groq par ek bhi normal model nahi bacha!"
 
         last_error = ""
-        for model_name in safe_models:
+        # 3. ZINDA AUR SAFE MODELS KO EK EK KARKE TRY KARO
+        for model_name in safe_live_models:
             try:
                 response = groq_client.chat.completions.create(
                     model=model_name, 
@@ -125,14 +130,14 @@ CRITICAL INSTRUCTION: YOU MUST ONLY OUTPUT THE FINAL CHAT MESSAGE. DO NOT OUTPUT
                 if response.choices:
                     reply_text = response.choices[0].message.content.strip()
                     
-                    # Agar galti se fir bhi numbers (1., 2.) bheje, toh usko reject karke saaf kar dega
+                    # 4. FINAL CLEANUP (Agar galti se kuch kachra aa gaya)
                     reply_text = re.sub(r'<think>.*?</think>', '', reply_text, flags=re.DOTALL).strip()
+                    
                     if "Analyze User Input" in reply_text or "Satisfy Rule" in reply_text:
                         lines = reply_text.split('\n')
-                        # Asli reply hamesha sabse neeche hota hai in errors mein
+                        # Asli jawab sabse aakhri line me hota hai
                         reply_text = lines[-1].replace("- Bot:", "").replace("- User:", "").strip()
 
-                    # Quotes (") agar aa jayein toh hata do
                     reply_text = reply_text.replace('"', '').replace("'", "")
 
                     if reply_text:
@@ -142,7 +147,7 @@ CRITICAL INSTRUCTION: YOU MUST ONLY OUTPUT THE FINAL CHAT MESSAGE. DO NOT OUTPUT
                 last_error = str(e)
                 continue
                 
-        return f"Bhai saare safe models fail ho gaye: {last_error}"
+        return f"Bhai saare active models fail ho gaye: {last_error}"
         
     except Exception as e:
         logging.error(f"Groq API error: {e}")
@@ -188,5 +193,5 @@ def on_text_message(client: Client, message: Message):
         logging.error(f"Text error: {e}")
 
 if __name__ == "__main__":
-    logging.info("🚀 100% Real Human AI Userbot is Starting with STRIXT Brain...")
+    logging.info("🚀 100% Real Human AI Userbot is Starting with DYNAMIC SAFE MODELS...")
     app.run()
