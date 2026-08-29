@@ -1,9 +1,14 @@
 import pyrogram.utils
 import pyrogram.client
+import pyrogram.methods.advanced.invoke
 import pyrogram.methods.advanced.resolve_peer
+import pyrogram.session.session
+import pyrogram.raw.types.updates as raw_updates
+import pyrogram.raw.functions.updates as raw_update_funcs
 from pyrogram.raw.types import InputPeerChannel, InputPeerChat, InputPeerUser, InputPeerEmpty
+from pyrogram.errors import ChannelInvalid, ChannelPrivate, PeerIdInvalid, RPCError
 
-# 1. ROOT FIX: 64-Bit Telegram Channel IDs & Crash-Proof Resolver
+# 1. ROOT LEVEL FIX: 64-Bit IDs & Low-Level Session Crash Interceptor
 pyrogram.utils.MIN_CHANNEL_ID = -1009999999999999
 pyrogram.utils.MAX_CHANNEL_ID = -1000000000000
 pyrogram.utils.MIN_CHAT_ID = -999999999999
@@ -30,7 +35,54 @@ pyrogram.utils.get_channel_id = patched_get_channel_id
 pyrogram.methods.advanced.resolve_peer.utils.get_peer_type = patched_get_peer_type
 pyrogram.methods.advanced.resolve_peer.utils.get_channel_id = patched_get_channel_id
 
-# Unknown / Invalid Peer ID Resolver Bypass
+# Safe Low-Level Session Invoker (Catches GetChannelDifference before crash)
+orig_session_invoke = pyrogram.session.session.Session.invoke
+
+async def safe_session_invoke(self, query, timeout=None):
+    try:
+        return await orig_session_invoke(self, query, timeout=timeout)
+    except (ChannelInvalid, ChannelPrivate, PeerIdInvalid, RPCError) as err:
+        if isinstance(query, raw_update_funcs.GetChannelDifference):
+            pts_val = getattr(query, "pts", 0)
+            return raw_updates.ChannelDifferenceEmpty(pts=pts_val, final=True)
+        if any(x in str(err) for x in ["CHANNEL_INVALID", "PEER_ID_INVALID", "CHANNEL_PRIVATE"]):
+            if isinstance(query, raw_update_funcs.GetChannelDifference):
+                pts_val = getattr(query, "pts", 0)
+                return raw_updates.ChannelDifferenceEmpty(pts=pts_val, final=True)
+            return None
+        raise err
+
+pyrogram.session.session.Session.invoke = safe_session_invoke
+
+# Safe High-Level Invoke Patch
+orig_methods_invoke = pyrogram.methods.advanced.invoke.Invoke.invoke
+
+async def safe_methods_invoke(self, query, retries=pyrogram.client.Client.MAX_RETRIES, timeout=pyrogram.client.Client.TAKEOUT_TIMEOUT):
+    try:
+        return await orig_methods_invoke(self, query, retries=retries, timeout=timeout)
+    except Exception as err:
+        if isinstance(query, raw_update_funcs.GetChannelDifference):
+            pts_val = getattr(query, "pts", 0)
+            return raw_updates.ChannelDifferenceEmpty(pts=pts_val, final=True)
+        if any(x in str(err) for x in ["CHANNEL_INVALID", "PEER_ID_INVALID", "CHANNEL_PRIVATE"]):
+            return None
+        raise err
+
+pyrogram.methods.advanced.invoke.Invoke.invoke = safe_methods_invoke
+pyrogram.client.Client.invoke = safe_methods_invoke
+
+# Safe Handle Updates Patch
+orig_handle_updates = pyrogram.client.Client.handle_updates
+
+async def safe_handle_updates(self, updates):
+    try:
+        await orig_handle_updates(self, updates)
+    except Exception:
+        pass
+
+pyrogram.client.Client.handle_updates = safe_handle_updates
+
+# Safe Peer Resolver
 orig_resolve_peer = pyrogram.client.Client.resolve_peer
 
 async def safe_resolve_peer(self, peer_id):
@@ -56,7 +108,7 @@ import logging
 import json
 import urllib.request
 import urllib.error
-from pyrogram import Client, idle
+from pyrogram import Client, filters, idle
 from pyrogram.types import Message
 from pyrogram.enums import ChatAction, ChatType
 from config import API_ID, API_HASH, SESSION_STRING, GEMINI_API_KEY, GROUP_LINK
@@ -70,7 +122,8 @@ API_KEY = str(GEMINI_API_KEY).strip()
 WORKING_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.0-flash",
-    "gemini-1.5-flash"
+    "gemini-1.5-flash",
+    "gemini-flash-latest"
 ]
 
 # Fast Dynamic AI Generator (DM + Group Friendly)
@@ -78,9 +131,9 @@ def fetch_gemini_reply(user_text: str, sender_name: str, is_group: bool) -> str:
     chat_context = "in a Telegram Group chat" if is_group else "in a private 1-on-1 chat"
 
     prompt_text = (
-        f"You are an authentic, cool Indian guy chatting casually on Telegram {chat_context}.\n"
+        f"You are a young, cool Indian guy chatting casually {chat_context}.\n"
         f"Strict Rules for replying:\n"
-        f"1. Reply strictly in 100% natural, casual conversational everyday Hinglish (Hindi written in English alphabets).\n"
+        f"1. Reply strictly in 100% natural, casual everyday conversational Hinglish (Hindi written in English alphabets).\n"
         f"2. Act like a real human friend typing fast on mobile (use words like: haan, bhai, yaar, arey, mast, sahi hai, bilkul, tu bata, abhi, bol).\n"
         f"3. Directly answer what the friend said contextually:\n"
         f"   - If greetings ('hi', 'hello', 'oye', 'yoo', 'heyy', 'hu', 'uhii', 'hpo', 'h8', 'hii'): friendly casual reply (e.g. 'aur bhai kya chal raha hai?', 'haan bhai bol kya haal?')\n"
@@ -96,7 +149,7 @@ def fetch_gemini_reply(user_text: str, sender_name: str, is_group: bool) -> str:
     )
 
     payload = {
-        "contents": [{"role": "user", "parts": [{"text": prompt_text}]}],
+        "contents": [{"parts": [{"text": prompt_text}]}],
         "generationConfig": {"temperature": 0.85, "maxOutputTokens": 60}
     }
     data_bytes = json.dumps(payload).encode("utf-8")
@@ -113,7 +166,7 @@ def fetch_gemini_reply(user_text: str, sender_name: str, is_group: bool) -> str:
         except Exception:
             continue
 
-    # Multi-Variant Fallbacks (Zero Repetition)
+    # Multi-Variant Contextual Fallbacks
     low = user_text.lower().strip()
     if any(k in low for k in ["khana", "lunch", "dinner"]):
         return random.choice([
@@ -159,14 +212,13 @@ app = Client(
 
 STICKER_VAULT = []
 
-# Universal Clean Message Listener
-@app.on_message()
-async def universal_dispatcher(client: Client, message: Message):
+# Unified Message Handler for DM + Groups
+@app.on_message(~filters.me)
+async def message_dispatcher(client: Client, message: Message):
     try:
-        # Ignore own messages & bot messages
-        if message.outgoing:
+        if message.from_user and message.from_user.is_bot:
             return
-        if message.from_user and (message.from_user.is_self or message.from_user.is_bot):
+        if message.outgoing:
             return
 
         sender = message.from_user.first_name if message.from_user else "Dost"
@@ -179,7 +231,7 @@ async def universal_dispatcher(client: Client, message: Message):
             if message.sticker.file_id:
                 STICKER_VAULT.append(message.sticker.file_id)
 
-            logging.info(f"🎨 Sticker received from [{sender}] in [{chat_title}]")
+            logging.info(f"🎨 Sticker from [{sender}] in [{chat_title}]")
 
             try:
                 await client.send_chat_action(chat_id, ChatAction.CHOOSE_STICKER)
@@ -212,19 +264,10 @@ async def universal_dispatcher(client: Client, message: Message):
                 logging.info(f"✅ AI Replied to [{sender}] in [{chat_title}]: {reply}")
 
     except Exception as err:
-        logging.error(f"Execution Error: {err}")
+        logging.error(f"Handler error: {err}")
 
 async def main():
     await app.start()
-    
-    # Pre-cache dialogs so SQLite storage never throws KeyError
-    logging.info("⏳ Syncing Dialogs & Chats Cache...")
-    try:
-        async for _ in app.get_dialogs(limit=50):
-            pass
-    except Exception:
-        pass
-        
     logging.info("🚀 AI Userbot is LIVE 24/7 for DM + ALL Groups!")
     await idle()
     await app.stop()
