@@ -3,7 +3,7 @@ import pyrogram.client
 import pyrogram.methods.advanced.resolve_peer
 from pyrogram.raw.types import InputPeerChannel, InputPeerChat, InputPeerUser, InputPeerEmpty
 
-# 1. PERMANENT CORE PATCH: 64-Bit Channel IDs & Resolver Crash Bypass
+# 1. ROOT FIX: 64-Bit Telegram Channel IDs & Crash-Proof Resolver
 pyrogram.utils.MIN_CHANNEL_ID = -1009999999999999
 pyrogram.utils.MAX_CHANNEL_ID = -1000000000000
 pyrogram.utils.MIN_CHAT_ID = -999999999999
@@ -30,7 +30,7 @@ pyrogram.utils.get_channel_id = patched_get_channel_id
 pyrogram.methods.advanced.resolve_peer.utils.get_peer_type = patched_get_peer_type
 pyrogram.methods.advanced.resolve_peer.utils.get_channel_id = patched_get_channel_id
 
-# Safe Resolve Peer Patch (Prevents update task from dying)
+# Unknown / Invalid Peer ID Resolver Bypass
 orig_resolve_peer = pyrogram.client.Client.resolve_peer
 
 async def safe_resolve_peer(self, peer_id):
@@ -48,17 +48,6 @@ async def safe_resolve_peer(self, peer_id):
         return InputPeerEmpty()
 
 pyrogram.client.Client.resolve_peer = safe_resolve_peer
-
-# Safe Update Handler Patch
-orig_handle_updates = pyrogram.client.Client.handle_updates
-
-async def safe_handle_updates(self, updates):
-    try:
-        await orig_handle_updates(self, updates)
-    except Exception:
-        pass
-
-pyrogram.client.Client.handle_updates = safe_handle_updates
 
 # 2. Main Bot Setup
 import asyncio
@@ -84,15 +73,15 @@ WORKING_MODELS = [
     "gemini-1.5-flash"
 ]
 
-# Fast Dynamic AI Generator (DM + Group)
+# Fast Dynamic AI Generator (DM + Group Friendly)
 def fetch_gemini_reply(user_text: str, sender_name: str, is_group: bool) -> str:
     chat_context = "in a Telegram Group chat" if is_group else "in a private 1-on-1 chat"
 
     prompt_text = (
-        f"You are a young, friendly Indian guy chatting casually {chat_context}.\n"
+        f"You are an authentic, cool Indian guy chatting casually on Telegram {chat_context}.\n"
         f"Strict Rules for replying:\n"
         f"1. Reply strictly in 100% natural, casual conversational everyday Hinglish (Hindi written in English alphabets).\n"
-        f"2. Act like a real human friend typing fast on mobile (words to use: haan, bhai, yaar, arey, mast, sahi hai, bilkul, tu bata, abhi, bol).\n"
+        f"2. Act like a real human friend typing fast on mobile (use words like: haan, bhai, yaar, arey, mast, sahi hai, bilkul, tu bata, abhi, bol).\n"
         f"3. Directly answer what the friend said contextually:\n"
         f"   - If greetings ('hi', 'hello', 'oye', 'yoo', 'heyy', 'hu', 'uhii', 'hpo', 'h8', 'hii'): friendly casual reply (e.g. 'aur bhai kya chal raha hai?', 'haan bhai bol kya haal?')\n"
         f"   - If food ('khana khya', 'lunch', 'dinner'): natural reply (e.g. 'haan bhai bas abhi khaya, tune khaya kya?', 'abhi nahi yaar thodi der me khaunga')\n"
@@ -227,6 +216,15 @@ async def universal_dispatcher(client: Client, message: Message):
 
 async def main():
     await app.start()
+    
+    # Pre-cache dialogs so SQLite storage never throws KeyError
+    logging.info("⏳ Syncing Dialogs & Chats Cache...")
+    try:
+        async for _ in app.get_dialogs(limit=50):
+            pass
+    except Exception:
+        pass
+        
     logging.info("🚀 AI Userbot is LIVE 24/7 for DM + ALL Groups!")
     await idle()
     await app.stop()
