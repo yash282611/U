@@ -130,21 +130,22 @@ app = Client(
     session_string=str(SESSION_STRING)
 )
 
-# SIRF TEXT MESSAGES KO PAKDEGA
-@app.on_message(filters.text)
+STICKER_VAULT = []
+
+@app.on_message(filters.text | filters.sticker)
 async def universal_dispatcher(client: Client, message: Message):
     try:
-        # 🚨 DEBUG LOG: Jaise hi message aayega, ye Railway me print hoga
-        logging.info(f"⚡ EVENT CATCHED: Text='{message.text}' | Outgoing={message.outgoing}")
+        # DEBUG LOG
+        if message.text:
+            logging.info(f"⚡ EVENT CATCHED: Text='{message.text}' | Outgoing={message.outgoing}")
 
-        # 1. HARDCODED TEST COMMAND
+        # 1. TEST COMMAND
         if message.text == ".test":
-            await message.reply_text("✅ Bhai! Bot 100% zinda hai aur messages read kar raha hai!", quote=True)
-            logging.info("✅ Replied to .test command successfully!")
+            await message.reply_text("✅ Bhai! Bot ekdum bindass chal raha hai!", quote=True)
             return
 
-        # 2. AI khud ko reply karke loop na banaye isliye robot emoji ignore karega
-        if message.text.startswith("🤖"):
+        # 2. AI khud ko reply na kare (Loop prevention)
+        if message.text and message.text.startswith("🤖"):
             return
             
         # 3. Doosre bots ko ignore karega
@@ -162,27 +163,48 @@ async def universal_dispatcher(client: Client, message: Message):
         except Exception:
             pass
 
-        # 4. NORMAL TEXT MESSAGE - AI REPLY
-        user_text = message.text
-        logging.info(f"📩 Processing AI for [{chat_title}] {sender}: {user_text}")
+        # 4. STICKER MESSAGE
+        if message.sticker:
+            if message.outgoing: # Khud ke sticker ignore karega
+                return
+            if message.sticker.file_id:
+                STICKER_VAULT.append(message.sticker.file_id)
 
-        try:
-            await client.send_chat_action(chat_id, ChatAction.TYPING)
-        except Exception:
-            pass
+            logging.info(f"🎨 Sticker from [{sender}] in [{chat_title}]")
+            await asyncio.sleep(random.uniform(0.8, 1.4))
+            chosen = random.choice(STICKER_VAULT) if STICKER_VAULT else message.sticker.file_id
+            await message.reply_sticker(sticker=chosen, quote=True)
+            return
 
-        await asyncio.sleep(random.uniform(1.0, 1.6))
-        reply = await asyncio.to_thread(fetch_gemini_reply, user_text, sender, is_group)
+        # 5. NORMAL TEXT MESSAGE (Ab ye tumhare messages par bhi reply karega)
+        if message.text:
+            user_text = message.text
+            logging.info(f"📩 Processing AI for [{chat_title}] {sender}: {user_text}")
 
-        if reply:
-            await message.reply_text(text=f"🤖 {reply}", quote=True, disable_web_page_preview=True)
-            logging.info(f"✅ AI Replied: {reply}")
+            try:
+                await client.send_chat_action(chat_id, ChatAction.TYPING)
+            except Exception:
+                pass
+
+            await asyncio.sleep(random.uniform(1.0, 1.6))
+            reply = await asyncio.to_thread(fetch_gemini_reply, user_text, sender, is_group)
+
+            if reply:
+                await message.reply_text(text=f"🤖 {reply}", quote=True, disable_web_page_preview=True)
+                logging.info(f"✅ AI Replied: {reply}")
 
     except Exception as err:
         logging.error(f"Handler execution error: {err}")
 
+
+# YAHAN JADOO HAI! Bot start hote hi apna Number batayega
 async def main():
     await app.start()
+    me = await app.get_me()
+    logging.info("=========================================")
+    logging.info(f"🤖 BOT IS LOGGED IN AS: {me.first_name}")
+    logging.info(f"📱 PHONE NUMBER: +{me.phone_number}")
+    logging.info("=========================================")
     logging.info("🚀 AI Userbot is LIVE 24/7! (DEBUG MODE ON)")
     await idle()
     await app.stop()
