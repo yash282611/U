@@ -1,9 +1,19 @@
+# 1. ROOT LEVEL FIX: 64-Bit IDs & Unbreakable Update Loop
 import pyrogram.utils
 import pyrogram.client
 import pyrogram.methods.advanced.resolve_peer
 from pyrogram.raw.types import InputPeerChannel, InputPeerChat, InputPeerUser, InputPeerEmpty
+import asyncio
+import random
+import logging
+import json
+import urllib.request
+import urllib.error
+from pyrogram import Client, idle
+from pyrogram.types import Message
+from pyrogram.enums import ChatAction, ChatType
+from config import API_ID, API_HASH, SESSION_STRING, GEMINI_API_KEY, GROUP_LINK
 
-# 1. ROOT LEVEL FIX: 64-Bit IDs & Unbreakable Update Loop
 pyrogram.utils.MIN_CHANNEL_ID = -1009999999999999
 pyrogram.utils.MAX_CHANNEL_ID = -1000000000000
 pyrogram.utils.MIN_CHAT_ID = -999999999999
@@ -63,17 +73,6 @@ pyrogram.client.Client.handle_updates = safe_handle_updates
 pyrogram.Client.handle_updates = safe_handle_updates
 
 # 2. Main Bot Setup
-import asyncio
-import random
-import logging
-import json
-import urllib.request
-import urllib.error
-from pyrogram import Client, idle
-from pyrogram.types import Message
-from pyrogram.enums import ChatAction, ChatType
-from config import API_ID, API_HASH, SESSION_STRING, GEMINI_API_KEY, GROUP_LINK
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
@@ -178,8 +177,13 @@ async def universal_dispatcher(client: Client, message: Message):
     try:
         if not message:
             return
+            
+        # ⚠️ YAHAN DHYAN DE: Ye code tumhare khud ke bheje hue messages ko ignore karta hai
+        # Taaki infinite spam loop na bane. Isliye testing ke liye dusre account se message bhejna padega.
         if message.outgoing:
             return
+            
+        # Ye bots aur khud ko ignore karne ke liye hai
         if message.from_user and (message.from_user.is_self or message.from_user.is_bot):
             return
 
