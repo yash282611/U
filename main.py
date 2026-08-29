@@ -1,6 +1,7 @@
 import time
 import random
 import logging
+import os
 import pyrogram.utils
 import pyrogram.client
 from pyrogram.raw.types import InputPeerChannel, InputPeerChat, InputPeerUser, InputPeerEmpty
@@ -58,13 +59,13 @@ async def safe_handle_updates(self, updates):
 pyrogram.client.Client.handle_updates = safe_handle_updates
 
 # ==========================================================
-# 🔑 APNI ASLI GROQ API KEY YAHAN QUOTES KE ANDAR DAAL BHAai
+# 🔑 AB YE RAILWAY KE VARIABLE SE SEEDHA KEY UTHAYEGA (Safe)
 # ==========================================================
-DIRECT_GROQ_KEY = ("GROQ_API_KEY")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 try:
     groq_client = OpenAI(
-        api_key=DIRECT_GROQ_KEY,
+        api_key=GROQ_API_KEY,
         base_url="https://api.groq.com/openai/v1",
     )
     logging.info("🎯 Connected 100% to Groq Cloud API")
@@ -87,7 +88,7 @@ Rules:
 
     history = chat_histories[chat_id]
     history.append({"role": "user", "content": f"{sender_name}: {user_text}"})
-    
+
     if len(history) > 10:
         history.pop(0)
 
@@ -106,8 +107,7 @@ Rules:
             return reply_text
     except Exception as e:
         logging.error(f"Groq response generation error: {e}")
-    
-    # Random fallback taaki agar API error aaye toh alag alag line jaye
+
     fallbacks = [
         "haan bhai sun rha hu", 
         "kya bol rha hai yaar", 
@@ -143,7 +143,6 @@ def on_text_message(client: Client, message: Message):
         except Exception:
             pass
 
-        # Insaan ki tarah sochne aur type karne ka real delay
         time.sleep(random.uniform(1.5, 3.0))
 
         reply = get_ai_reply(chat_id, user_text, sender)
