@@ -1,13 +1,9 @@
 import pyrogram.utils
 import pyrogram.client
-import pyrogram.session.session
 import pyrogram.methods.advanced.resolve_peer
-import pyrogram.raw.types.updates as raw_updates
-import pyrogram.raw.functions.updates as raw_update_funcs
 from pyrogram.raw.types import InputPeerChannel, InputPeerChat, InputPeerUser, InputPeerEmpty
-from pyrogram.errors import ChannelInvalid, ChannelPrivate, PeerIdInvalid, RPCError
 
-# 1. ROOT FIX: 64-Bit IDs & Bulletproof Session Invoker
+# 1. ROOT LEVEL FIX: 64-Bit IDs & Unbreakable Update Loop
 pyrogram.utils.MIN_CHANNEL_ID = -1009999999999999
 pyrogram.utils.MAX_CHANNEL_ID = -1000000000000
 pyrogram.utils.MIN_CHAT_ID = -999999999999
@@ -34,38 +30,12 @@ pyrogram.utils.get_channel_id = patched_get_channel_id
 pyrogram.methods.advanced.resolve_peer.utils.get_peer_type = patched_get_peer_type
 pyrogram.methods.advanced.resolve_peer.utils.get_channel_id = patched_get_channel_id
 
-# Fully Dynamic Session Invoker (Accepts any number of args cleanly)
-orig_session_invoke = pyrogram.session.session.Session.invoke
-
-async def safe_session_invoke(self, *args, **kwargs):
-    query = args[0] if len(args) > 0 else kwargs.get("query")
-    try:
-        return await orig_session_invoke(self, *args, **kwargs)
-    except Exception as e:
-        if isinstance(query, raw_update_funcs.GetChannelDifference):
-            pts_val = getattr(query, "pts", 0)
-            try:
-                return raw_updates.ChannelDifferenceEmpty(pts=pts_val, final=True)
-            except Exception:
-                return raw_updates.ChannelDifferenceEmpty(pts=pts_val)
-        if any(x in str(e) for x in ["CHANNEL_INVALID", "PEER_ID_INVALID", "CHANNEL_PRIVATE"]):
-            if isinstance(query, raw_update_funcs.GetChannelDifference):
-                pts_val = getattr(query, "pts", 0)
-                try:
-                    return raw_updates.ChannelDifferenceEmpty(pts=pts_val, final=True)
-                except Exception:
-                    return raw_updates.ChannelDifferenceEmpty(pts=pts_val)
-            return None
-        raise e
-
-pyrogram.session.session.Session.invoke = safe_session_invoke
-
-# Safe Resolve Peer (Prevents KeyError)
-orig_resolve_peer = pyrogram.client.Client.resolve_peer
+# Safe Peer Resolver
+_orig_resolve_peer = pyrogram.client.Client.resolve_peer
 
 async def safe_resolve_peer(self, peer_id):
     try:
-        return await orig_resolve_peer(self, peer_id)
+        return await _orig_resolve_peer(self, peer_id)
     except Exception:
         if isinstance(peer_id, int):
             s = str(peer_id)
@@ -78,6 +48,19 @@ async def safe_resolve_peer(self, peer_id):
         return InputPeerEmpty()
 
 pyrogram.client.Client.resolve_peer = safe_resolve_peer
+pyrogram.Client.resolve_peer = safe_resolve_peer
+
+# Safe Update Loop Handler (Task termination preventer)
+_orig_handle_updates = pyrogram.client.Client.handle_updates
+
+async def safe_handle_updates(self, updates):
+    try:
+        await _orig_handle_updates(self, updates)
+    except Exception:
+        pass
+
+pyrogram.client.Client.handle_updates = safe_handle_updates
+pyrogram.Client.handle_updates = safe_handle_updates
 
 # 2. Main Bot Setup
 import asyncio
@@ -86,7 +69,7 @@ import logging
 import json
 import urllib.request
 import urllib.error
-from pyrogram import Client, filters, idle
+from pyrogram import Client, idle
 from pyrogram.types import Message
 from pyrogram.enums import ChatAction, ChatType
 from config import API_ID, API_HASH, SESSION_STRING, GEMINI_API_KEY, GROUP_LINK
@@ -100,8 +83,7 @@ API_KEY = str(GEMINI_API_KEY).strip()
 WORKING_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.0-flash",
-    "gemini-1.5-flash",
-    "gemini-flash-latest"
+    "gemini-1.5-flash"
 ]
 
 # Fast Dynamic AI Generator (DM + Group Friendly)
@@ -111,7 +93,7 @@ def fetch_gemini_reply(user_text: str, sender_name: str, is_group: bool) -> str:
     prompt_text = (
         f"You are a young, cool Indian guy chatting casually {chat_context}.\n"
         f"Strict Rules for replying:\n"
-        f"1. Reply strictly in 100% natural, casual everyday conversational Hinglish (Hindi written in English alphabets).\n"
+        f"1. Reply strictly in 100% natural, casual conversational everyday Hinglish (Hindi written in English alphabets).\n"
         f"2. Act like a real human friend typing fast on mobile (words to use: haan, bhai, yaar, arey, mast, sahi hai, bilkul, tu bata, abhi, bol).\n"
         f"3. Directly answer what the friend said contextually:\n"
         f"   - If greetings ('hi', 'hello', 'oye', 'yoo', 'heyy', 'hu', 'uhii', 'hpo', 'h8', 'hii'): friendly casual reply (e.g. 'aur bhai kya chal raha hai?', 'haan bhai bol kya haal?')\n"
@@ -127,7 +109,7 @@ def fetch_gemini_reply(user_text: str, sender_name: str, is_group: bool) -> str:
     )
 
     payload = {
-        "contents": [{"parts": [{"text": prompt_text}]}],
+        "contents": [{"role": "user", "parts": [{"text": prompt_text}]}],
         "generationConfig": {"temperature": 0.85, "maxOutputTokens": 60}
     }
     data_bytes = json.dumps(payload).encode("utf-8")
@@ -190,10 +172,12 @@ app = Client(
 
 STICKER_VAULT = []
 
-# Unified Message Handler for DM + Groups
-@app.on_message(~filters.me)
-async def message_dispatcher(client: Client, message: Message):
+# Universal Clean Message Listener
+@app.on_message()
+async def universal_dispatcher(client: Client, message: Message):
     try:
+        if not message:
+            return
         if message.outgoing:
             return
         if message.from_user and (message.from_user.is_self or message.from_user.is_bot):
@@ -203,6 +187,12 @@ async def message_dispatcher(client: Client, message: Message):
         chat_id = message.chat.id
         is_group = message.chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]
         chat_title = message.chat.title if is_group else sender
+
+        # Instant Double-Tick (Mark as Read)
+        try:
+            await client.read_chat_history(chat_id)
+        except Exception:
+            pass
 
         # 1. STICKER MESSAGE
         if message.sticker:
@@ -228,8 +218,6 @@ async def message_dispatcher(client: Client, message: Message):
             logging.info(f"📩 [{chat_title}] {sender}: {user_text}")
 
             try:
-                if not is_group:
-                    await client.read_chat_history(chat_id)
                 await client.send_chat_action(chat_id, ChatAction.TYPING)
             except Exception:
                 pass
@@ -242,7 +230,7 @@ async def message_dispatcher(client: Client, message: Message):
                 logging.info(f"✅ AI Replied to [{sender}] in [{chat_title}]: {reply}")
 
     except Exception as err:
-        logging.error(f"Handler error: {err}")
+        logging.error(f"Handler execution error: {err}")
 
 async def main():
     await app.start()
