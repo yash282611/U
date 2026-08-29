@@ -1,7 +1,6 @@
 import time
 import random
 import logging
-import os
 import re
 import pyrogram.utils
 import pyrogram.client
@@ -12,11 +11,14 @@ from pyrogram.enums import ChatAction
 from openai import OpenAI
 from collections import defaultdict
 
+# Config file se sab import kar rahe hain
 from config import API_ID, API_HASH, SESSION_STRING, GROQ_API_KEY, GROUP_LINK
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Pyrogram peer patch
+# ==========================================
+# Root Level Fix for Pyrogram Group Peers
+# ==========================================
 pyrogram.utils.MIN_CHANNEL_ID = -1009999999999999
 pyrogram.utils.MAX_CHANNEL_ID = -1000000000000
 pyrogram.utils.MIN_CHAT_ID = -999999999999
@@ -60,17 +62,31 @@ async def safe_handle_updates(self, updates):
         pass
 pyrogram.client.Client.handle_updates = safe_handle_updates
 
-groq_client = OpenAI(
-    api_key=GROQ_API_KEY,
-    base_url="https://api.groq.com/openai/v1",
-)
 
+# ==========================================
+# MASTER JUGAAD: MULTI-KEY SETUP
+# ==========================================
+# Ye code tere comma wale variables ko alag-alag key bana dega
+api_keys_list = [k.strip() for k in GROQ_API_KEY.split(",") if k.strip()]
+groq_clients = []
+
+for key in api_keys_list:
+    try:
+        groq_clients.append(OpenAI(api_key=key, base_url="https://api.groq.com/openai/v1"))
+    except Exception:
+        pass
+
+logging.info(f"🎯 Total {len(groq_clients)} API Keys Loaded!")
+
+# ==========================================
+# Chat History Memory 
+# ==========================================
 chat_histories = defaultdict(list)
 
 def get_ai_reply(chat_id: int, user_text: str, sender_name: str) -> str:
     system_prompt = f"""You are a close 19-year-old Indian friend chatting naturally in Hinglish.
-Reply directly, smartly, and contextually to what the user said. If they ask for shayari, send a nice 2-line shayari.
-Keep replies short and human-like. Never output usernames, reasoning steps, or rule numbers."""
+Reply directly, smartly, and contextually to what the user said.
+Keep replies short (max 5-10 words) and human-like. Never output usernames, reasoning steps, or rule numbers."""
 
     history = chat_histories[chat_id]
     history.append({"role": "user", "content": user_text})
@@ -79,27 +95,42 @@ Keep replies short and human-like. Never output usernames, reasoning steps, or r
         history.pop(0)
 
     messages = [{"role": "system", "content": system_prompt}] + list(history)
+    target_model = "llama-3.1-8b-instant"
+    
+    if not groq_clients:
+        return "Bhai ek bhi key load nahi hui."
 
-    # Sirf do valid Groq models
-    for model_name in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
+    for client in groq_clients:
         try:
-            response = groq_client.chat.completions.create(
-                model=model_name,
+            response = client.chat.completions.create(
+                model=target_model, 
                 messages=messages,
-                temperature=0.8,
-                max_tokens=80
+                temperature=0.8, 
+                max_tokens=60
             )
+            
             if response.choices:
-                reply = response.choices[0].message.content.strip()
-                reply = re.sub(r'<think>.*?</think>', '', reply, flags=re.DOTALL).strip()
-                history.append({"role": "assistant", "content": reply})
-                return reply
+                reply_text = response.choices[0].message.content.strip()
+                
+                # Cleanup
+                reply_text = re.sub(r'<think>.*?</think>', '', reply_text, flags=re.DOTALL).strip()
+                reply_text = reply_text.replace(f"{sender_name}:", "").replace("Bot:", "").replace("User:", "").strip()
+                reply_text = reply_text.replace('"', '').replace("'", "")
+
+                if reply_text:
+                    history.append({"role": "assistant", "content": reply_text})
+                    return reply_text
+                    
         except Exception as e:
-            logging.error(f"Error on {model_name}: {e}")
+            logging.error(f"Key failed, trying next... Error: {e}")
             continue
 
-    return "Bhai Groq API connect nahi ho rahi, API Key ya limit check kar ek baar."
+    # Agar saari keys fail ho jayein tab ye aayega
+    return "bhai meri saari limits khatam ho gayi hain, thodi der baad aana"
 
+# ==========================================
+# Pyrogram Client Start
+# ==========================================
 app = Client(
     name="group_human_userbot",
     api_id=API_ID,
@@ -114,7 +145,6 @@ def on_text_message(client: Client, message: Message):
             return
 
         sender = message.from_user.first_name if message.from_user else "Dost"
-        user_text = message.text
         chat_id = message.chat.id
 
         try:
@@ -126,12 +156,12 @@ def on_text_message(client: Client, message: Message):
 
         time.sleep(random.uniform(1.2, 2.5))
 
-        reply = get_ai_reply(chat_id, user_text, sender)
+        reply = get_ai_reply(chat_id, message.text, sender)
         if reply:
             message.reply_text(text=reply, quote=True, disable_web_page_preview=True)
 
     except Exception as e:
-        logging.error(f"Handler error: {e}")
+        logging.error(f"Text error: {e}")
 
 if __name__ == "__main__":
     app.run()
