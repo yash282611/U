@@ -8,7 +8,7 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 from pyrogram.enums import ChatAction
 from openai import OpenAI
-from config import API_ID, API_HASH, SESSION_STRING, GROQ_API_KEY, GROUP_LINK
+from config import API_ID, API_HASH, SESSION_STRING, GROUP_LINK
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -56,10 +56,15 @@ async def safe_handle_updates(self, updates):
         pass
 pyrogram.client.Client.handle_updates = safe_handle_updates
 
-# Groq Cloud API Setup
+# ==========================================
+# 🔑 APNI GROQ API KEY YAHAN DIRECT DAAL DO
+# ==========================================
+DIRECT_GROQ_KEY = "gsk_yah_apni_asli_groq_key_paste_kar_dena" 
+# (Agar yahan nahi dalni, to railway me variable ka naam 'GROQ_API_KEY' rakh dena)
+
 try:
     groq_client = OpenAI(
-        api_key=GROQ_API_KEY,
+        api_key=DIRECT_GROQ_KEY,
         base_url="https://api.groq.com/openai/v1",
     )
     logging.info("🎯 Connected 100% to Groq Cloud API")
@@ -95,7 +100,7 @@ Chat Guidelines:
             return response.choices[0].message.content.strip()
     except Exception as e:
         logging.error(f"Groq response generation error: {e}")
-    return ""
+    return "Haan bhai bata, sun raha hu!"
 
 STICKERS = [
     "CAACAgIAAxkBAAEK1eBlvK9-h3V1Lh6DkgABw1b4a3kAAj0AA8G2wQgYjGfXW3wFHgQ",
