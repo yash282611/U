@@ -11,7 +11,6 @@ from pyrogram.enums import ChatAction
 from openai import OpenAI
 from collections import defaultdict
 
-# Config file se sab import kar rahe hain
 from config import API_ID, API_HASH, SESSION_STRING, GROQ_API_KEY, GROUP_LINK
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -62,12 +61,11 @@ async def safe_handle_updates(self, updates):
         pass
 pyrogram.client.Client.handle_updates = safe_handle_updates
 
-
 # ==========================================
-# MASTER JUGAAD: MULTI-KEY SETUP
+# MULTI-KEY SETUP
 # ==========================================
-# Ye code tere comma wale variables ko alag-alag key bana dega
-api_keys_list = [k.strip() for k in GROQ_API_KEY.split(",") if k.strip()]
+raw_keys = str(GROQ_API_KEY).replace("\n", "").split(",")
+api_keys_list = [k.strip() for k in raw_keys if len(k.strip()) > 10]
 groq_clients = []
 
 for key in api_keys_list:
@@ -76,7 +74,7 @@ for key in api_keys_list:
     except Exception:
         pass
 
-logging.info(f"🎯 Total {len(groq_clients)} API Keys Loaded!")
+logging.info(f"🎯 Total {len(groq_clients)} Working API Keys Loaded Successfully!")
 
 # ==========================================
 # Chat History Memory 
@@ -84,9 +82,9 @@ logging.info(f"🎯 Total {len(groq_clients)} API Keys Loaded!")
 chat_histories = defaultdict(list)
 
 def get_ai_reply(chat_id: int, user_text: str, sender_name: str) -> str:
-    system_prompt = f"""You are a close 19-year-old Indian friend chatting naturally in Hinglish.
-Reply directly, smartly, and contextually to what the user said.
-Keep replies short (max 5-10 words) and human-like. Never output usernames, reasoning steps, or rule numbers."""
+    system_prompt = f"""You are a close 19-year-old Indian guy chatting with your friend on Telegram in everyday Hinglish.
+Reply directly, naturally, and contextually. If asked for a shayari, give a 2-line shayari.
+Keep replies short (5-15 words). Never output usernames, prefixes, rules, or reasoning steps."""
 
     history = chat_histories[chat_id]
     history.append({"role": "user", "content": user_text})
@@ -95,38 +93,45 @@ Keep replies short (max 5-10 words) and human-like. Never output usernames, reas
         history.pop(0)
 
     messages = [{"role": "system", "content": system_prompt}] + list(history)
-    target_model = "llama-3.1-8b-instant"
     
+    # Active Models List
+    available_models = [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "llama-3.2-3b-preview"
+    ]
+
     if not groq_clients:
-        return "Bhai ek bhi key load nahi hui."
+        return "Bhai railway me API keys theek se nahi dali."
 
+    # Har client aur model ko check karega
     for client in groq_clients:
-        try:
-            response = client.chat.completions.create(
-                model=target_model, 
-                messages=messages,
-                temperature=0.8, 
-                max_tokens=60
-            )
-            
-            if response.choices:
-                reply_text = response.choices[0].message.content.strip()
+        for model_name in available_models:
+            try:
+                response = client.chat.completions.create(
+                    model=model_name, 
+                    messages=messages,
+                    temperature=0.8, 
+                    max_tokens=70
+                )
                 
-                # Cleanup
-                reply_text = re.sub(r'<think>.*?</think>', '', reply_text, flags=re.DOTALL).strip()
-                reply_text = reply_text.replace(f"{sender_name}:", "").replace("Bot:", "").replace("User:", "").strip()
-                reply_text = reply_text.replace('"', '').replace("'", "")
-
-                if reply_text:
-                    history.append({"role": "assistant", "content": reply_text})
-                    return reply_text
+                if response.choices:
+                    reply_text = response.choices[0].message.content.strip()
                     
-        except Exception as e:
-            logging.error(f"Key failed, trying next... Error: {e}")
-            continue
+                    # Cleanup reasoning or prefix leaks
+                    reply_text = re.sub(r'<think>.*?</think>', '', reply_text, flags=re.DOTALL).strip()
+                    reply_text = re.sub(r'^(Bot|User|Shinchan|Dost):\s*', '', reply_text, flags=re.IGNORECASE).strip()
+                    reply_text = reply_text.replace('"', '').replace("'", "")
 
-    # Agar saari keys fail ho jayein tab ye aayega
-    return "bhai meri saari limits khatam ho gayi hain, thodi der baad aana"
+                    if reply_text:
+                        history.append({"role": "assistant", "content": reply_text})
+                        return reply_text
+                        
+            except Exception as e:
+                logging.warning(f"Key/Model combination failed: {e}")
+                continue
+
+    return "bhai abhi network issue hai, 2 min baad try kar"
 
 # ==========================================
 # Pyrogram Client Start
